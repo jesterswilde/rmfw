@@ -1,0 +1,184 @@
+:root {
+  --separator-thickness: 6px;
+  --separator-hit: 10px; /* slightly larger hit area */
+  --pane-radius: 8px;
+  --pane-padding: 8px;
+  --pane-gap: 0px; /* space between panes (kept 0 for edge-to-edge with separator) */
+  --min-pane-size: 64px; /* fallback min, can be overridden per-node */
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  height: 100%;
+  margin: 0;
+  background: #0b0d10;
+  color: #d7dde5;
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+}
+
+.panes-root {
+  position: relative;
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+
+/* Split containers */
+.split {
+  display: flex;
+  height: 100%;
+  width: 100%;
+}
+
+.split.vertical { /* children left-right (vertical separator) */
+  flex-direction: row;
+}
+
+.split.horizontal { /* children stacked (horizontal separator) */
+  flex-direction: column;
+}
+
+/* Child wrapper that receives percentage sizing via flex-basis */
+.child {
+  position: relative;
+  min-width: var(--min-pane-size);
+  min-height: var(--min-pane-size);
+  overflow: hidden;
+  display: flex;
+}
+
+/* Leaf pane */
+.pane {
+  border-radius: var(--pane-radius);
+  flex: 1 1 auto;
+  margin: 0;          /* no gap; separator is the gutter */
+  padding: var(--pane-padding);
+  overflow: auto;
+  border: 1px solid rgba(255,255,255,0.06);
+}
+
+/* Placeholder colors for different types */
+.pane.type-vp { background: #10324a; }    /* Viewport */
+.pane.type-out { background: #2a1e42; }   /* Output/Console */
+.pane.type-prop { background: #243c22; }  /* Properties */
+
+/* Separator (actual visible line) */
+.separator {
+  background: rgba(255,255,255,0.12);
+  position: relative;
+  z-index: 2;
+  flex: 0 0 var(--separator-thickness);
+}
+
+/* Larger invisible hit target for easier grabbing */
+.separator::before {
+  content: "";
+  position: absolute;
+  z-index: 1;
+  background: transparent;
+}
+
+.separator.vertical { cursor: col-resize; }
+.separator.horizontal { cursor: row-resize; }
+
+.separator.vertical::before {
+  left: calc((var(--separator-thickness) - var(--separator-hit)) / 2);
+  right: calc((var(--separator-thickness) - var(--separator-hit)) / 2);
+  top: 0; bottom: 0;
+}
+
+.separator.horizontal::before {
+  top: calc((var(--separator-thickness) - var(--separator-hit)) / 2);
+  bottom: calc((var(--separator-thickness) - var(--separator-hit)) / 2);
+  left: 0; right: 0;
+}
+
+/* While dragging, highlight separator a bit */
+.separator.dragging {
+  background: rgba(255,255,255,0.25);
+}
+
+/* Pane label (just to visualize types) */
+.pane .label {
+  font-size: 12px;
+  opacity: 0.8;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.separator { touch-action: none; }
+
+
+.separator { touch-action: none; }
+
+/* --- Pane menu button --- */
+.pane-btn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  border: 1px solid rgba(255,255,255,0.20);
+  background: rgba(0,0,0,0.35);
+  color: #fff;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  line-height: 1;
+  font-size: 14px;
+  z-index: 3;
+}
+.pane-btn:hover {
+  background: rgba(255,255,255,0.10);
+}
+
+/* --- Context menu (root + sub) --- */
+.ctx {
+  position: fixed;
+  z-index: 9999;
+  background: rgba(20,22,26,0.98);
+  color: #fff;
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 8px;
+  min-width: 190px;
+  padding: 6px 4px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.35);
+  font: 13px/1.4 system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+  user-select: none;
+}
+.ctx.sub  { z-index: 10000; }
+
+/* menu rows */
+.ctx-item {
+  position: relative;
+  padding: 6px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.ctx-item.disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+.ctx-item:not(.disabled):hover {
+  background: rgba(255,255,255,0.08);
+}
+
+/* separator line */
+.ctx-sep {
+  margin: 6px 0;
+  border-top: 1px solid rgba(255,255,255,0.12);
+}
+
+/* submenu caret */
+.ctx-item.has-sub .ctx-caret {
+  position: absolute;
+  right: 8px;
+}
+
+/* Defensive: ensure menus don't overflow viewport edges clipping issues */
+.ctx, .ctx * {
+  box-sizing: border-box;
+}

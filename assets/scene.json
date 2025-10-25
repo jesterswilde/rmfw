@@ -1,0 +1,18 @@
+{
+    "version": 1,
+    "root": "root",
+    "nodes": [
+        {"id": "root", "children": ["sub", "box"], "payload": 0},
+        {"id": "sub", "children": ["sphere2", "sphere"], "payload": 1},
+        {"id": "sphere", "payload": 2},
+        {"id": "sphere2", "payload": 3},
+        {"id": "box","payload": 4}
+    ],
+    "payloads":[
+        {"type": 21},
+        {"type": 22},
+        { "type": 1, "position": [ 0.8,0,-0.5], "rotation":[0,0,0], "radius": 0.8 },
+        { "type": 1, "position": [ 0,0,0], "rotation":[0,0,0], "radius": 1 },
+        { "type": 2, "position": [-3,0,0], "rotation":[45,0,0], "bounds":[2,1,0.1] }
+    ]
+}

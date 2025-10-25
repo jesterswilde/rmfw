@@ -1,0 +1,40 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+
+    /* ESM in the browser */
+    "module": "ESNext",
+    "moduleResolution": "node",
+    "verbatimModuleSyntax": true,
+    "allowImportingTsExtensions": false,
+    "resolveJsonModule": true,
+
+    /* Type safety */
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitOverride": true,
+    "noPropertyAccessFromIndexSignature": true,
+    "useUnknownInCatchVariables": true,
+
+    /* Project hygiene */
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "noEmit": false,
+    "outDir": "dist",
+    "isolatedModules": true,
+    "useDefineForClassFields": true,
+
+    /* DX */
+    "types": ["@webgpu/types"],
+
+    /* Path aliases (optional) */
+    // "baseUrl": ".",
+    // "paths": {
+    //   "@/*": ["src/*"]
+    // }
+  },
+  "include": ["src/**/*.ts", "src/**/*.d.ts"],
+  "exclude": ["dist", "build", "node_modules"]
+}
