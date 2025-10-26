@@ -87,6 +87,8 @@ export const repack = (nodes: NodeTree, entities: EntityPool, mats: Mat34Pool) =
     iNewNodeMI[nNMI + nl.M.PARENT] = -1;
     iNewNodeMI[nNMI + nl.M.STATUS] = nNew;
     iNewNodeMI[nNMI + nl.M.XFORM_INDEX] = mapXform(iOldNodeMI[nOMI + nl.M.XFORM_INDEX]! | 0);
+    iNewNodeMI[nNMI + nl.M.STATIC_ID] = iOldNodeMI[nOMI + nl.M.STATIC_ID]!;
+
 
     const eOld = iOldNodeGI[nOGI + nl.G.ENTITY_INDEX]! | 0;
     const eOGI = eOld * el.GPU_LANES, eNGI = nNew * el.GPU_LANES;

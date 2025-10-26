@@ -1,26 +1,14 @@
+// tests/repack.test.ts
 import { EntityPool } from "../src/pools/entity";
 import { NodeTree } from "../src/pools/nodeTree";
 import { Mat34Pool } from "../src/pools/matrix";
 import { repack } from "../src/systems/repack";
 import { EntityType } from "../src/entityDef";
 import { Vector3 } from "../src/utils/math";
-
-const snapshotBuffers = (nodes: NodeTree, ents: EntityPool, mats: Mat34Pool) => {
-  const nBV = nodes.getBufferViews();
-  const eBV = ents.getBufferViews();
-  const mBV = mats.getBufferViews();
-  return {
-    nG: new Int32Array(nBV.gpuMirrorBuffer).slice(),
-    nM: new Int32Array(nBV.metaBuffer).slice(),
-    eG: new Int32Array(eBV.gpuMirrorBuffer).slice(),
-    eM: new Int32Array(eBV.metaBuffer).slice(),
-    mG: new Float32Array(mBV.gpuMirrorBuffer).slice(),
-    mM: new Int32Array(mBV.metaBuffer).slice(),
-  };
-};
+import { snapshotBuffers, views, readNode, expectEncodedFree } from "./testUtils";
 
 describe("repack()", () => {
-  it("compacts deterministically, remaps xforms, preserves payloads, and is idempotent", () => {
+  it("compacts deterministically, remaps xforms, preserves payloads, and is idempotent (with stable static IDs)", () => {
     const entities = new EntityPool(16);
     const nodes = new NodeTree(16);
     const mats = new Mat34Pool(16);
@@ -52,6 +40,15 @@ describe("repack()", () => {
     const a = nodes.addChild(0, 0, e1, m1);
     const c = nodes.addChild(a, 0, e3, -1);
 
+    // Capture set of static IDs pre-repack (we only check that the set is preserved,
+    // not the exact index association, since indices compact/change).
+    const beforeStaticIds = (() => {
+      const nBV = vNodes();
+      const set = new Set<number>();
+      for (const i of [0, a, b, c]) set.add(readNode(nBV, i).staticId);
+      return set;
+    })();
+
     // Precondition sanity
     {
       const { gpuI32 } = vNodes();
@@ -80,7 +77,7 @@ describe("repack()", () => {
     expect(snap2.mM).toEqual(snap1.mM);
 
     // Post-conditions after repack #1
-    const { gpuI32: nGI32, metaI32: nMI32 } = vNodes();
+    const { gpuI32: nGI32, metaI32: nMI32, idToIndex } = vNodes();
     const { gpuI32: eGI32, metaI32: eMI32 } = vEnts();
     const { gpuF32: mGF32, metaI32: mMI32 } = vMats();
 
@@ -91,6 +88,7 @@ describe("repack()", () => {
       parent:      nMI32[i * nl.META_LANES + nl.M.PARENT] | 0,
       status:      nMI32[i * nl.META_LANES + nl.M.STATUS] | 0,
       xform:       nMI32[i * nl.META_LANES + nl.M.XFORM_INDEX] | 0,
+      staticId:    nMI32[i * nl.META_LANES + nl.M.STATIC_ID] | 0,
     });
 
     // DFS order: [0, a, c, b] -> new ids: 0,1,2,3
@@ -176,12 +174,21 @@ describe("repack()", () => {
     const firstFreeNodeStatus = nMI32[4 * nl.META_LANES + nl.M.STATUS] | 0;
     const firstFreeEntStatus  = eMI32[4 * el.META_LANES + el.M.STATUS] | 0;
     const firstFreeMatStatus  = mMI32[2 * ml.META_LANES + ml.M.STATUS] | 0;
-    expect(firstFreeNodeStatus).toBeLessThan(0);
-    expect(firstFreeNodeStatus).not.toBe(-2);
-    expect(firstFreeEntStatus).toBeLessThan(0);
-    expect(firstFreeEntStatus).not.toBe(-2);
-    expect(firstFreeMatStatus).toBeLessThan(0);
-    expect(firstFreeMatStatus).not.toBe(-2);
+    expectEncodedFree(firstFreeNodeStatus);
+    expectEncodedFree(firstFreeEntStatus);
+    expectEncodedFree(firstFreeMatStatus);
+
+    // ---- Static ID checks ----
+    // (a) Set of static IDs preserved across repack
+    const afterStaticIds = new Set<number>();
+    for (let i = 0; i < nodes.size; i++) afterStaticIds.add(node(i).staticId);
+    expect(afterStaticIds).toEqual(beforeStaticIds);
+
+    // (b) idToIndex round-trip: for each node, idToIndex[staticId] == node index
+    for (let i = 0; i < nodes.size; i++) {
+      const sid = node(i).staticId;
+      expect(idToIndex[sid] | 0).toBe(i);
+    }
 
     // Pools remain valid
     expect(() => nodes.validate()).not.toThrow();
