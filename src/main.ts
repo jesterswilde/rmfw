@@ -1,7 +1,7 @@
 import { GPUDeviceManager } from "./gpu/device.js";
 import { FrameLoop } from "./core/loop.js";
 import { Scene } from "./scene/scene.js";
-import { CanvasView } from "./view/canvasView.js";
+import { CanvasView } from "./scene/canvasView.js";
 
 import { getInputs, setupInputListeners } from "./inputs.js";
 import { moveCam, rotateCam } from "./camera.js";

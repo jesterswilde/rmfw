@@ -4,21 +4,11 @@ import { NodeTree } from '../pools/nodeTree.js';
 import { parseScene } from '../systems/loadScene.js';
 import { repack } from '../systems/repack.js';
 import { load } from '../utils/util.js';
-import { ComputeRenderer } from '../render/computeRenderer.js';
-import { QuadBlitPass } from '../render/quadBlit.js';
-import type { IView } from '../view/canvasView.js';
+import { ComputeRenderer } from './computeRenderer.js';
+import { QuadBlitPass } from './quadBlit.js';
 import { propagateTransforms } from '../systems/propegatTransforms.js';
+import type { IView, SceneViews, ViewGPU } from './interface.js';
 
-type ViewGPU = {
-  context: GPUCanvasContext;
-  outTex: GPUTexture;
-  outView: GPUTextureView;
-  outBG: GPUBindGroup | null; // @group(0)
-  blitBG: GPUBindGroup;
-  width: number;
-  height: number;
-  uboOffset: number;          // dynamic UBO slice (bytes)
-};
 
 export class Scene {
   private _device: GPUDevice;
@@ -39,7 +29,7 @@ export class Scene {
   private _time = 0;
   private _numObjs = 0; // will be set from _entities.size after load
 
-  private _views = new Map<number, { view: IView, gpu: ViewGPU }>();
+  private _views: SceneViews = new Map<number, { view: IView, gpu: ViewGPU }>();
 
   // Frame UBO (dynamic)
   private _frameUBO!: GPUBuffer;

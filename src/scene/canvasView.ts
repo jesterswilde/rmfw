@@ -1,13 +1,4 @@
-import type { Scene } from "../scene/scene.js";
-
-export interface IView {
-  id: number;
-  getElement(): HTMLCanvasElement;
-  getSize(): { width: number; height: number };
-  getCamera(): Float32Array; // 4x4 column-major
-  update(t: number, dt: number): void;
-  dispose(): void;
-}
+import type { Scene } from "./scene.js";
 
 export class CanvasView implements IView {
   id: number;
