@@ -1,0 +1,1 @@
+export type Tickable = (t: number, dt: number) => void;

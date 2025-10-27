@@ -1,3 +1,4 @@
+// parseScene.spec.ts
 import { parseScene } from "../src/systems/loadScene";
 import { EntityPool } from "../src/pools/entity";
 import { NodeTree } from "../src/pools/nodeTree";
@@ -5,7 +6,7 @@ import { Mat34Pool } from "../src/pools/matrix";
 import { EntityType } from "../src/entityDef";
 
 describe("parseScene", () => {
-  it("loads nodes/entities/mats and preserves child order", () => {
+  it("loads nodes/entities/mats, preserves child order, and assigns stable IDs", () => {
     // input
     const scene = {
       version: 1,
@@ -18,11 +19,11 @@ describe("parseScene", () => {
         { id: "box", payload: 4 },
       ],
       payloads: [
-        { type: 21 }, // SimpleUnion
-        { type: 22 }, // SimpleSubtract
-        { type: 1, position: [1, 0, 0], rotation: [0, 0, 0], radius: 0.3 },
-        { type: 1, position: [3, 0, 0], rotation: [0, 0, 0], radius: 1.0 },
-        { type: 2, position: [-1, 0, 0], rotation: [0, 0, 0], bounds: [1, 1, 1] },
+        { type: EntityType.SimpleUnion },
+        { type: EntityType.SimpleSubtract },
+        { type: EntityType.Sphere, position: [1, 0, 0], rotation: [0, 0, 0], radius: 0.3 },
+        { type: EntityType.Sphere, position: [3, 0, 0], rotation: [0, 0, 0], radius: 1.0 },
+        { type: EntityType.Box,    position: [-1, 0, 0], rotation: [0, 0, 0], bounds: [1, 1, 1] },
       ],
     };
 
@@ -32,13 +33,15 @@ describe("parseScene", () => {
     const mats = new Mat34Pool(16);
 
     // load
-    parseScene(scene as any, nodes, entities, mats);
+    const count = parseScene(scene as any, nodes, entities, mats);
+    expect(count).toBe(scene.nodes.length);
 
-    // views
+    // layouts
     const nl = NodeTree.Layout;
     const el = EntityPool.Layout;
     const ml = Mat34Pool.Layout;
 
+    // views
     const nBV = nodes.getBufferViews();
     const eBV = entities.getBufferViews();
     const mBV = mats.getBufferViews();
@@ -47,22 +50,35 @@ describe("parseScene", () => {
     const nMI = nBV.metaI32;
     const eGI = eBV.gpuI32;
     const eMI = eBV.metaI32;
-    const mGF = mBV.gpuF32;
+    const mGF = mBV.gpuF32;   // (unused for local; kept for future checks)
     const mMI = mBV.metaI32;
+    const mMF = mBV.metaF32;  // read LOCAL from META
 
     // helpers
     const nodeChild = (i: number) => nGI[i * nl.GPU_LANES + nl.G.CHILD] | 0;
-    const nodeSib = (i: number) => nGI[i * nl.GPU_LANES + nl.G.SIB] | 0;
-    const nodeEnt = (i: number) => nGI[i * nl.GPU_LANES + nl.G.ENTITY_INDEX] | 0;
-    const nodeXf = (i: number) => nMI[i * nl.META_LANES + nl.M.XFORM_INDEX] | 0;
+    const nodeSib   = (i: number) => nGI[i * nl.GPU_LANES + nl.G.SIB] | 0;
+    const nodeEnt   = (i: number) => nGI[i * nl.GPU_LANES + nl.G.ENTITY_INDEX] | 0;
+    const nodeXf    = (i: number) => nMI[i * nl.META_LANES + nl.M.XFORM_INDEX] | 0;
+
     const entType = (idx: number) => eGI[idx * el.GPU_LANES + el.G.H_TYPE] | 0;
-    const entV0x = (idx: number) => {
+    const entV0x  = (idx: number) => {
       const f32 = new Float32Array(eBV.gpuMirrorBuffer);
       return f32[idx * el.GPU_LANES + el.G.V0X]!;
     };
-    const mTx = (xf: number) => mGF[xf * ml.GPU_LANES + ml.G.TX]!;
-    const mTy = (xf: number) => mGF[xf * ml.GPU_LANES + ml.G.TY]!;
-    const mTz = (xf: number) => mGF[xf * ml.GPU_LANES + ml.G.TZ]!;
+
+    // LOCAL translation readers — use META BASE (absolute L.* offsets)
+    const mLocalTx = (xf: number) => {
+      const mb = xf * ml.META_LANES;
+      return mMF[mb + ml.M.L.TX]!;
+    };
+    const mLocalTy = (xf: number) => {
+      const mb = xf * ml.META_LANES;
+      return mMF[mb + ml.M.L.TY]!;
+    };
+    const mLocalTz = (xf: number) => {
+      const mb = xf * ml.META_LANES;
+      return mMF[mb + ml.M.L.TZ]!;
+    };
 
     // root
     expect(nodeEnt(0)).toBeGreaterThanOrEqual(0);
@@ -79,14 +95,14 @@ describe("parseScene", () => {
     expect(entType(c0Ent)).toBe(EntityType.SimpleSubtract);
     expect(nodeXf(c0)).toBe(-1);
 
-    // its sibling should be Sphere at x=3 with radius 1.0 (stored as inverse transform)
+    // its sibling should be Sphere at x=3 with radius 1.0 (local transform only)
     const s0Ent = nodeEnt(s0);
     expect(entType(s0Ent)).toBe(EntityType.Sphere);
     const s0Xf = nodeXf(s0);
     expect(s0Xf).toBeGreaterThanOrEqual(0);
-    expect(mTx(s0Xf)).toBeCloseTo(-3, 6); // inverse of position [3,0,0]
-    expect(mTy(s0Xf)).toBeCloseTo(0, 6);
-    expect(mTz(s0Xf)).toBeCloseTo(0, 6);
+    expect(mLocalTx(s0Xf)).toBeCloseTo(3, 6);  // local of position [3,0,0]
+    expect(mLocalTy(s0Xf)).toBeCloseTo(0, 6);
+    expect(mLocalTz(s0Xf)).toBeCloseTo(0, 6);
     expect(entV0x(s0Ent)).toBeCloseTo(1.0, 6); // radius in V0X
 
     // second-level under "sub": children order ["sphere", "box"]
@@ -95,18 +111,18 @@ describe("parseScene", () => {
     expect(c1).toBeGreaterThan(0);
     expect(s1).toBeGreaterThan(0);
 
-    // "sphere" at x=1, radius 0.3 (stored as inverse transform)
+    // "sphere" at x=1, radius 0.3 (local transform only)
     const c1Ent = nodeEnt(c1);
     expect(entType(c1Ent)).toBe(EntityType.Sphere);
     const c1Xf = nodeXf(c1);
-    expect(mTx(c1Xf)).toBeCloseTo(-1, 6); // inverse of position [1,0,0]
+    expect(mLocalTx(c1Xf)).toBeCloseTo(1, 6);   // local of position [1,0,0]
     expect(entV0x(c1Ent)).toBeCloseTo(0.3, 6);
 
-    // "box" at x=-1, bounds [1,1,1] (stored as inverse transform)
+    // "box" at x=-1, bounds [1,1,1] (local transform only)
     const s1Ent = nodeEnt(s1);
     expect(entType(s1Ent)).toBe(EntityType.Box);
     const s1Xf = nodeXf(s1);
-    expect(mTx(s1Xf)).toBeCloseTo(1, 6); // inverse of position [-1,0,0]
+    expect(mLocalTx(s1Xf)).toBeCloseTo(-1, 6);  // local of position [-1,0,0]
 
     // unions have no xform; shapes do
     const unionCount =
@@ -129,6 +145,25 @@ describe("parseScene", () => {
       expect(xf).toBeGreaterThanOrEqual(0);
       expect(mMI[xf * ml.META_LANES + ml.M.STATUS] | 0).toBeGreaterThanOrEqual(0);
     });
+
+    // root’s static ID must be 0 and resolve back to index 0
+    expect(nodes.getStaticIdForIndex(0)).toBe(0);
+    expect(nodes.resolveIndexFromStaticId(0)).toBe(0);
+
+    // children must each have a stable ID >=1 and resolve back to themselves
+    const ids = [c0, s0, c1, s1].map((idx) => ({
+      idx,
+      sid: nodes.getStaticIdForIndex(idx),
+    }));
+
+    ids.forEach(({ idx, sid }) => {
+      expect(sid).toBeGreaterThanOrEqual(1);
+      expect(nodes.resolveIndexFromStaticId(sid)).toBe(idx);
+    });
+
+    // no duplicates among assigned child SIDs
+    const sidSet = new Set(ids.map((x) => x.sid));
+    expect(sidSet.size).toBe(ids.length);
 
     // pool validate
     expect(() => nodes.validate()).not.toThrow();

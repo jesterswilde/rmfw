@@ -80,7 +80,7 @@ export function parseScene(obj: any, nodes: NodeTree, entities: EntityPool, mats
       const pos = p.position ?? [0, 0, 0];
       const rot = p.rotation ?? [0, 0, 0];
       const xformId = mats.create(true, false);
-      mats.setInverseFromTRS(xformId, new Vector3(pos[0], pos[1], pos[2]), toEulerZYX(rot), false);
+      mats.setFromTRS(xformId, new Vector3(pos[0], pos[1], pos[2]), toEulerZYX(rot), false);
       xformIdByNodeId.set(n.id, xformId);
     } else {
       xformIdByNodeId.set(n.id, -1);

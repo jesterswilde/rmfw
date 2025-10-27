@@ -7,6 +7,7 @@ import { load } from '../utils/util.js';
 import { ComputeRenderer } from '../render/computeRenderer.js';
 import { QuadBlitPass } from '../render/quadBlit.js';
 import type { IView } from '../view/canvasView.js';
+import { propagateTransforms } from '../systems/propegatTransforms.js';
 
 type ViewGPU = {
   context: GPUCanvasContext;
@@ -153,6 +154,8 @@ export class Scene {
 
       this._numObjs = this._entities.size;
     }
+
+    propagateTransforms(this._nodes, this._matrices)
   }
 
   registerView(view: IView) {
