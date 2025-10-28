@@ -1,7 +1,7 @@
-import type { IView } from "./interface.js";
+import type { ResizableView } from "./interface.js";
 import type { Scene } from "./scene.js";
 
-export class CanvasView implements IView {
+export class CanvasView implements ResizableView {
   id: number;
   private canvas: HTMLCanvasElement;
   private width: number;
