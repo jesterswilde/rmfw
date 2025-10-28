@@ -4,9 +4,9 @@ import { Scene } from "./scene.js";
 import { CanvasView } from "./canvasView.js";
 import { getInputs, setupInputListeners } from "../inputs.js";
 import { moveCam, rotateCam } from "../camera.js";
-import type { ResizableView, SceneEngine } from "./interface.js";
+import type { ResizableView } from "./interface.js";
 
-export class SceneRuntime implements SceneEngine {
+export class Engine {
   private initPromise: Promise<void> | null = null;
   private scene: Scene | null = null;
   private views = new Set<CanvasView>();

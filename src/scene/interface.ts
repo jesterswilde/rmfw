@@ -26,9 +26,3 @@ export type SceneViews = Map<number, {
     view: IView;
     gpu: ViewGPU;
 }>;
-
-export interface SceneEngine {
-  ensureReady(): Promise<void>;
-  createViewport(width: number, height: number): Promise<ResizableView>;
-  destroyViewport(view: ResizableView): void;
-}
