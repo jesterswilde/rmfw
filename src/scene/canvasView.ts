@@ -8,43 +8,38 @@ export class CanvasView implements ResizableView {
   private height: number;
   private camera = new Float32Array(16);
   private scene: Scene;
+  private readonly externalCanvas: boolean;
 
-  constructor(scene: Scene, id: number, w = 512, h = 512) {
+  constructor(scene: Scene, id: number, w = 512, h = 512, existingCanvas?: HTMLCanvasElement) {
     this.scene = scene;
     this.id = id;
-    this.canvas = document.createElement("canvas");
-    this.width = w; this.height = h;
+    this.canvas = existingCanvas ?? document.createElement("canvas");
+    this.width = w;
+    this.height = h;
+    this.externalCanvas = Boolean(existingCanvas);
 
-    // CSS size for layout
-    this.canvas.style.width = `${w}px`;
-    this.canvas.style.height = `${h}px`;
-
-    // Backing pixel size (DPR-aware)
-    const dpr = Math.max(1, window.devicePixelRatio || 1);
-    this.canvas.width  = Math.max(1, Math.floor(w * dpr));
-    this.canvas.height = Math.max(1, Math.floor(h * dpr));
-
+    this.syncSizing();
     this.initCamera();
     this.scene.registerView(this);
   }
 
-  getElement() { return this.canvas; }
-  getSize() { return { width: this.width, height: this.height }; }
-  getCamera() { return this.camera; }
+  getElement() {
+    return this.canvas;
+  }
+
+  getSize() {
+    return { width: this.width, height: this.height };
+  }
+
+  getCamera() {
+    return this.camera;
+  }
 
   resize(w: number, h: number) {
     this.width = Math.max(1, Math.floor(w));
     this.height = Math.max(1, Math.floor(h));
 
-    // CSS size
-    this.canvas.style.width = `${this.width}px`;
-    this.canvas.style.height = `${this.height}px`;
-
-    // Backing size
-    const dpr = Math.max(1, window.devicePixelRatio || 1);
-    this.canvas.width  = Math.max(1, Math.floor(this.width  * dpr));
-    this.canvas.height = Math.max(1, Math.floor(this.height * dpr));
-
+    this.syncSizing();
     this.scene.onViewResize(this);
   }
 
@@ -54,7 +49,20 @@ export class CanvasView implements ResizableView {
 
   dispose() {
     this.scene.deregisterView(this);
-    this.canvas.remove();
+    if (!this.externalCanvas) {
+      this.canvas.remove();
+    }
+  }
+
+  private syncSizing() {
+    if (!this.externalCanvas) {
+      this.canvas.style.width = `${this.width}px`;
+      this.canvas.style.height = `${this.height}px`;
+    }
+
+    const dpr = Math.max(1, window.devicePixelRatio || 1);
+    this.canvas.width = Math.max(1, Math.floor(this.width * dpr));
+    this.canvas.height = Math.max(1, Math.floor(this.height * dpr));
   }
 
   private initCamera() {
