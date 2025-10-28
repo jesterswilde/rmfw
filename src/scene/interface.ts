@@ -18,7 +18,17 @@ export interface IView {
   dispose(): void;
 }
 
+export interface ResizableView extends IView {
+  resize(width: number, height: number): void;
+}
+
 export type SceneViews = Map<number, {
     view: IView;
     gpu: ViewGPU;
-}>
+}>;
+
+export interface SceneEngine {
+  ensureReady(): Promise<void>;
+  createViewport(width: number, height: number): Promise<ResizableView>;
+  destroyViewport(view: ResizableView): void;
+}

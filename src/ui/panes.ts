@@ -7,6 +7,7 @@ import {
   PaneType,
 } from "./types.js";
 import { showContextMenu, type MenuItem } from "./contextMenu.js";
+import { mountViewportPane } from "./viewportPane.js";
 
 /* -------------------------------------------------------------------------- */
 /* Config                                                                      */
@@ -120,6 +121,18 @@ function getNodeByPath(root: SplitNode, path: Path): PaneNode {
   return node;
 }
 
+function setPaneTypeAtPath(
+  root: SplitNode,
+  path: Path,
+  paneType: PaneType
+): boolean {
+  const node = getNodeByPath(root, path);
+  if (node.kind !== "leaf") return false;
+  if (node.paneType === paneType) return false;
+  node.paneType = paneType;
+  return true;
+}
+
 function clamp(v: number, lo: number, hi: number) {
   return Math.max(lo, Math.min(hi, v));
 }
@@ -223,16 +236,19 @@ function paneTypeClass(t: PaneType): string {
 }
 function createLeafPane(
   node: LeafNode,
-  openMenu: (e: MouseEvent) => void
-): HTMLDivElement {
+  openMenu: (e: MouseEvent) => void,
+  openTypeMenu: (e: MouseEvent) => void
+): { el: HTMLDivElement; contentEl: HTMLDivElement } {
   const pane = document.createElement("div");
   pane.className = "pane " + paneTypeClass(node.paneType);
   pane.dataset["paneId"] = node.id;
   pane.style.position = "relative";
 
-  const label = document.createElement("div");
+  const label = document.createElement("button");
+  label.type = "button";
   label.className = "label";
   label.textContent = node.paneType;
+  label.addEventListener("click", openTypeMenu);
   pane.appendChild(label);
 
   const btn = document.createElement("button");
@@ -242,7 +258,34 @@ function createLeafPane(
   btn.addEventListener("click", openMenu);
   pane.appendChild(btn);
 
-  return pane;
+  const content = document.createElement("div");
+  content.className = "pane-content";
+  pane.appendChild(content);
+
+  return { el: pane, contentEl: content };
+}
+
+/* -------------------------------------------------------------------------- */
+/* Pane content renderers                                                      */
+/* -------------------------------------------------------------------------- */
+
+function mountLeafContent(
+  node: LeafNode,
+  container: HTMLElement
+): () => void {
+  switch (node.paneType) {
+    case PaneType.Viewport:
+      return mountViewportPane(node, container);
+    case PaneType.Output:
+      container.textContent = "Output view coming soon";
+      return () => {};
+    case PaneType.Properties:
+      container.textContent = "Properties view coming soon";
+      return () => {};
+    default:
+      container.textContent = node.paneType;
+      return () => {};
+  }
 }
 
 /* -------------------------------------------------------------------------- */
@@ -250,6 +293,7 @@ function createLeafPane(
 /* -------------------------------------------------------------------------- */
 
 type PaneMenuCtx = { path: Path };
+type PaneTypeMenuCtx = { path: Path };
 
 function buildPaneMenu(path: Path): { items: MenuItem[]; ctx: PaneMenuCtx } {
   const closable = (() => {
@@ -295,6 +339,24 @@ function onPaneMenuSelect(id: string, ctx?: PaneMenuCtx) {
     // spans changed above; rerender
     rerender();
     return;
+  }
+}
+
+function buildTypeMenu(path: Path): { items: MenuItem[]; ctx: PaneTypeMenuCtx } {
+  const items: MenuItem[] = (Object.values(PaneType) as PaneType[]).map((pt) => ({
+    kind: "action",
+    id: `set:${pt}`,
+    label: String(pt),
+  }));
+  return { items, ctx: { path } };
+}
+
+function onPaneTypeMenuSelect(id: string, ctx?: PaneTypeMenuCtx) {
+  if (!ctx) return;
+  if (!id.startsWith("set:")) return;
+  const paneType = id.slice(4) as PaneType;
+  if (setPaneTypeAtPath(currentRoot, ctx.path, paneType)) {
+    rerender();
   }
 }
 
@@ -570,12 +632,23 @@ function splitAtPath(
 
 function renderNode(node: PaneNode, path: Path) {
   if (node.kind === "leaf") {
+    const leaf = node as LeafNode;
     const onOpenMenu = (e: MouseEvent) => {
       const { items, ctx } = buildPaneMenu(path);
       showContextMenu<PaneMenuCtx>(e, items, onPaneMenuSelect, ctx);
     };
-    const el = createLeafPane(node as LeafNode, onOpenMenu);
-    return { el, destroy() {} };
+    const onOpenTypeMenu = (e: MouseEvent) => {
+      const { items, ctx } = buildTypeMenu(path);
+      showContextMenu<PaneTypeMenuCtx>(e, items, onPaneTypeMenuSelect, ctx);
+    };
+    const { el, contentEl } = createLeafPane(leaf, onOpenMenu, onOpenTypeMenu);
+    const disposeContent = mountLeafContent(leaf, contentEl);
+    return {
+      el,
+      destroy() {
+        disposeContent();
+      },
+    };
   }
 
   const container = createSplitContainer(node.orientation);
