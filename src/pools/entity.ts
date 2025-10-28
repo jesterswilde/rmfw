@@ -9,6 +9,7 @@ import {
   type SimpleIntersection as SimpleIntersectionEnt,
   type Camera as CameraEnt,
   type GateBox,
+  type UnioinWithXform,
 } from "../entityDef.js";
 import type { Vector3 } from "../utils/math.js";
 
@@ -357,6 +358,14 @@ export class EntityPool {
         this._gpuI32[b + EntityPool.Layout.G.H_FLAGS] = 0;
         break;
       }
+      case EntityType.unionWithXform: {
+        const op = e as UnioinWithXform;
+        this._gpuI32[b + EntityPool.Layout.G.H_TYPE] = EntityType.Camera;
+        this._gpuI32[b + EntityPool.Layout.G.H_XFORM] = op.xformID | 0;
+        this._gpuI32[b + EntityPool.Layout.G.H_MAT] = op.children;
+        this._gpuI32[b + EntityPool.Layout.G.H_FLAGS] = 0;
+        break;
+      }
       case EntityType.GateBox: {
         const gx = e as GateBox;
         this._gpuI32[b + EntityPool.Layout.G.H_TYPE] = EntityType.GateBox;
@@ -409,6 +418,11 @@ export class EntityPool {
       case EntityType.Camera: {
         const xformID = this._gpuI32[b + EntityPool.Layout.G.H_XFORM]! | 0;
         return { type: EntityType.Camera, xformID } as CameraEnt;
+      }
+      case EntityType.unionWithXform: {
+        const xformID = this._gpuI32[b + EntityPool.Layout.G.H_XFORM]! | 0;
+        const children = this._gpuI32[b + EntityPool.Layout.G.H_MAT]! | 0;
+        return { type: EntityType.unionWithXform, children, xformID } as UnioinWithXform;
       }
       case EntityType.GateBox: {
         const xformID = this._gpuI32[b + EntityPool.Layout.G.H_XFORM]! | 0;

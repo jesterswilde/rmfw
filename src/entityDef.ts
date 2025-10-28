@@ -1,16 +1,19 @@
 import type { EulerZYX, Vector3 } from "./utils/math.js"
 
 export enum EntityType { 
+    //Has Xforms
     Camera = 0,
     Sphere =  1,
     Box = 2,
+    unionWithXform = 40,
+    GateBox = 60,
 
-    ReduceUnion = 20,
-    SimpleUnion = 21,
-    SimpleSubtract = 22,
-    SimpleIntersection = 23,
+    //No Xforms
+    ReduceUnion = 100,
+    SimpleUnion = 101,
+    SimpleSubtract = 102,
+    SimpleIntersection = 103,
 
-    GateBox = 40
 }
 export interface Transform{
     position: Vector3
@@ -39,6 +42,11 @@ export interface ReduceUnion {
 export interface SimpleUnion {
     type: EntityType.SimpleUnion,
 }
+export interface UnioinWithXform {
+    type: EntityType.unionWithXform,
+    xformID: number
+    children: number
+}
 export interface SimpleSubtract {
     type: EntityType.SimpleSubtract,
 }
@@ -58,4 +66,5 @@ export type Entity = Camera
     | SimpleUnion
     | SimpleIntersection 
     | SimpleSubtract
+    | UnioinWithXform
     | GateBox

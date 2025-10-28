@@ -1,6 +1,6 @@
 import { NodeTree } from "../src/pools/nodeTree";
 import { Mat34Pool } from "../src/pools/matrix";
-import { parseScene } from "../src/systems/loadScene"; // adjust path to your parseScene file
+import { loadSceneJSON } from "../src/systems/loadSceneJSON"; // adjust path to your parseScene file
 import { propagateTransforms } from "../src/systems/propegatTransforms"; // adjust to where your function lives
 import { EntityType } from "../src/entityDef";
 
@@ -44,8 +44,8 @@ const sceneA = {
     { id: "sphere", payload: 1 },
   ],
   payloads: [
-    { type: 21 }, // SimpleUnion (no transform required)
-    { type: 1, position: [1, 2, 3], rotation: [0, 0, 0], radius: 1 }, // Sphere
+    { type: EntityType.SimpleUnion }, // SimpleUnion
+    { type: EntityType.Sphere, position: [1, 2, 3], rotation: [0, 0, 0], radius: 1 }, // Sphere
   ],
 };
 
@@ -75,9 +75,9 @@ const sceneC = {
     { id: "childNoXform", payload: 2 },
   ],
   payloads: [
-    { type: 21 }, // SimpleUnion
-    { type: 2, position: [5, 0, 0], rotation: [0, 0, 0], bounds: [1, 1, 1] }, // Box (has xform)
-    { type: 21 }, // SimpleUnion (no xform)
+    { type: EntityType.SimpleUnion }, // SimpleUnion
+    { type: EntityType.Box, position: [5, 0, 0], rotation: [0, 0, 0], bounds: [1, 1, 1] }, // Box (has xform)
+    { type: EntityType.SimpleUnion }, // SimpleUnion (no xform)
   ],
 };
 
@@ -89,7 +89,7 @@ describe("propagateTransforms", () => {
     const mats = new Mat34Pool(32);
 
     // parseScene allocates xforms for objects that need them and marks them dirty.
-    parseScene(sceneA as any, nodes, new (require("../src/pools/entity").EntityPool)(), mats);
+    loadSceneJSON(sceneA as any, nodes, new (require("../src/pools/entity").EntityPool)(), mats, true);
 
     const sphereNode = firstChild(nodes, /*root*/ 0);
     expect(sphereNode).toBeGreaterThanOrEqual(1);
@@ -120,7 +120,7 @@ describe("propagateTransforms", () => {
     const nodes = new NodeTree(32);
     const mats = new Mat34Pool(32);
 
-    parseScene(sceneB as any, nodes, new (require("../src/pools/entity").EntityPool)(), mats);
+    loadSceneJSON(sceneB as any, nodes, new (require("../src/pools/entity").EntityPool)(), mats, true);
 
     const parentNode = firstChild(nodes, 0);
     const childNode = firstChild(nodes, parentNode);
@@ -163,7 +163,7 @@ describe("propagateTransforms", () => {
     const nodes = new NodeTree(32);
     const mats = new Mat34Pool(32);
 
-    parseScene(sceneC as any, nodes, new (require("../src/pools/entity").EntityPool)(), mats);
+    loadSceneJSON(sceneC as any, nodes, new (require("../src/pools/entity").EntityPool)(), mats, true);
 
     const parentNode = firstChild(nodes, 0);
     const childNode = firstChild(nodes, parentNode);
@@ -196,7 +196,7 @@ describe("propagateTransforms", () => {
         { id: "c", payload: 3 },
       ],
       payloads: [
-        { type: 21 }, // SimpleUnion
+        { type: EntityType.SimpleUnion }, // SimpleUnion
         { type: 2, position: [1, 0, 0], rotation: [0, 0, 0], bounds: [1, 1, 1] }, // Box
         { type: 2, position: [0, 3, 0], rotation: [0, 0, 0], bounds: [1, 1, 1] }, // Box
         { type: 1, position: [0, 0, 4], rotation: [0, 0, 0], radius: 1 }, // Sphere
@@ -205,7 +205,7 @@ describe("propagateTransforms", () => {
 
     const nodes = new NodeTree(64);
     const mats = new Mat34Pool(64);
-    parseScene(deepScene as any, nodes, new (require("../src/pools/entity").EntityPool)(), mats);
+    loadSceneJSON(deepScene as any, nodes, new (require("../src/pools/entity").EntityPool)(), mats, true);
 
     const a = firstChild(nodes, 0);
     const b = firstChild(nodes, a);

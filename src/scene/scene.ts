@@ -1,7 +1,7 @@
 import { EntityPool } from '../pools/entity.js';
 import { Mat34Pool } from '../pools/matrix.js';
 import { NodeTree } from '../pools/nodeTree.js';
-import { parseScene } from '../systems/loadScene.js';
+import { loadSceneJSON } from '../systems/loadSceneJSON.js';
 import { repack } from '../systems/repack.js';
 import { load } from '../utils/util.js';
 import { ComputeRenderer } from './computeRenderer.js';
@@ -101,8 +101,7 @@ export class Scene {
 
   async loadScene(sceneLocation: string) {
     const sceneObj = await load(sceneLocation, 'json');
-    // Fill pools
-    parseScene(sceneObj, this._nodes, this._entities, this._matrices);
+    loadSceneJSON(sceneObj, this._nodes, this._entities, this._matrices);
     repack(this._nodes, this._entities, this._matrices);
 
     this._nodesVersion = this._nodes.version;

@@ -3,19 +3,16 @@ import { Mat34Pool } from "../pools/matrix.js";
 import { NodeTree } from "../pools/nodeTree.js";
 import { EntityType, type Entity } from "../entityDef.js";
 import { Vector3, type EulerZYX } from "../utils/math.js";
+import { propagateTransforms } from "./propegatTransforms.js";
 
 const toEulerZYX = (r: number[]): EulerZYX => ({
   yawZ: r?.[0] ?? 0,
   pitchY: r?.[1] ?? 0,
   rollX: r?.[2] ?? 0,
-  units: "rad",
+  units: "deg",
 });
 
-const needsXform = (t: number) =>
-  t === EntityType.Sphere ||
-  t === EntityType.Box ||
-  t === EntityType.Camera ||
-  t === EntityType.GateBox;
+const needsXform = (t: number) => t < 100
 
 function makeEntity(payload: any, xformId: number): Entity {
   const t = (payload?.type ?? -1) as number;
@@ -55,7 +52,7 @@ function makeEntity(payload: any, xformId: number): Entity {
 /** parses a scene object and inserts the data in to pool objects,
  * returns number of objects in the scene.
  */
-export function parseScene(obj: any, nodes: NodeTree, entities: EntityPool, mats: Mat34Pool): number {
+export function loadSceneJSON(obj: any, nodes: NodeTree, entities: EntityPool, mats: Mat34Pool, skipPropegation = false): number {
   // validate
   if (!obj || obj.version !== 1) throw new Error("scene parse: bad or missing version");
   if (!obj.root) throw new Error("scene parse: missing root id");
@@ -131,7 +128,10 @@ export function parseScene(obj: any, nodes: NodeTree, entities: EntityPool, mats
 
   nodes.writeAllToGPU();
   entities.writeAllToGPU();
-  mats.writeAllToGPU();
+  if(skipPropegation)
+    mats.writeAllToGPU();
+  else
+    propagateTransforms(nodes, mats)
 
   return obj.nodes.length
 }

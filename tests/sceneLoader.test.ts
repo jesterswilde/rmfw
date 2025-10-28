@@ -1,5 +1,5 @@
 // parseScene.spec.ts
-import { parseScene } from "../src/systems/loadScene";
+import { loadSceneJSON } from "../src/systems/loadSceneJSON";
 import { EntityPool } from "../src/pools/entity";
 import { NodeTree } from "../src/pools/nodeTree";
 import { Mat34Pool } from "../src/pools/matrix";
@@ -33,7 +33,7 @@ describe("parseScene", () => {
     const mats = new Mat34Pool(16);
 
     // load
-    const count = parseScene(scene as any, nodes, entities, mats);
+    const count = loadSceneJSON(scene as any, nodes, entities, mats);
     expect(count).toBe(scene.nodes.length);
 
     // layouts

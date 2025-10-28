@@ -1,5 +1,5 @@
-import { Mat34Pool } from "../pools/matrix";
-import { NodeTree } from "../pools/nodeTree";
+import { Mat34Pool } from "../pools/matrix.js";
+import { NodeTree } from "../pools/nodeTree.js";
 
 export const propagateTransforms = (nodes: NodeTree, mats: Mat34Pool)=>{
     const nl = NodeTree.Layout;
@@ -63,5 +63,8 @@ export const propagateTransforms = (nodes: NodeTree, mats: Mat34Pool)=>{
                 dirtyDepth = dirtyDepth > 0 ? dirtyDepth - 1 : 0
             }
         }
+    }
+    for(let i = 0 ; i < ranges.length; i += 2){
+        mats.writeRangeToGPU(ranges[i]!, ranges[i+1]!)
     }
 }

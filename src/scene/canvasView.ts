@@ -1,3 +1,4 @@
+import type { IView } from "./interface.js";
 import type { Scene } from "./scene.js";
 
 export class CanvasView implements IView {

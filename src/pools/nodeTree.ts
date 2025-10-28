@@ -15,7 +15,7 @@ export class NodeTree {
       PARENT: 0,
       STATUS: 1,        // >=0 alive; <0 means FREE (free-list link = -2 - nextId)
       XFORM_INDEX: 2,
-      STATIC_ID: 3,     // NEW: stable external ID (>=0 if owned; -1 if none)
+      STATIC_ID: 3,
     },
     META_LANES: 4,
     BYTES_PER_META_NODE: 4 * 4,
@@ -583,10 +583,9 @@ export class NodeTree {
     // Track which IDs are used
     const used = new Uint8Array(cap);
 
-    // First pass: clear mapping
-    for (let i = 0; i < cap; i++) this._idToIndex[i] = this.encodeNextFreeExt(-1);
+    for (let i = 0; i < cap; i++)
+      this._idToIndex[i] = this.encodeNextFreeExt(-1);
 
-    // Bind live nodes’ IDs; fix missing/invalid IDs
     for (let idx = 0; idx < cap; idx++) {
       if (!this.nodeAlive(idx)) continue;
       let sid = this._metaI32[idx * NodeTree.Layout.META_LANES + NodeTree.Layout.M.STATIC_ID]! | 0;

@@ -136,6 +136,10 @@ export class Mat34Pool {
     this._device.queue.writeBuffer(this._gpuBuffer, 0, this._gpuMirrorBuffer);
   }
 
+  writeRangeToGPU(startID: number, endID: number){
+    const byteOffset = startID * Mat34Pool.Layout.BYTES_PER_GPU;
+    const bytes = new Uint8Array(this._gpuMirrorBuffer, byteOffset, (startID - endID + 1) * Mat34Pool.Layout.BYTES_PER_GPU);
+  }
   /** Upload a single inverseWorld. */
   private writeInverseToGPU(id: number): void {
     if (!this._device || !this._gpuBuffer) return;
@@ -445,35 +449,46 @@ export class Mat34Pool {
     }
   }
 
-
   // ===== Math helpers (on META floats) =====
 
   private _writeTRSTo_(destBase: number | Float32Array, position: Vector3, e: EulerZYX) {
-    const write = (arr: Float32Array, base: number) => {
-      const yawZ   = e.units === "deg" ? deg2rad(e.yawZ)   : e.yawZ;
-      const pitchY = e.units === "deg" ? deg2rad(e.pitchY) : e.pitchY;
-      const rollX  = e.units === "deg" ? deg2rad(e.rollX)  : e.rollX;
-
-      const cz = Math.cos(yawZ), sz = Math.sin(yawZ);
-      const cy = Math.cos(pitchY), sy = Math.sin(pitchY);
-      const cx = Math.cos(rollX),  sx = Math.sin(rollX);
-
-      const r00 =  cz*cy;           const r01 =  cz*sy*sx + sz*cx; const r02 =  cz*sy*cx - sz*sx;
-      const r10 = -sz*cy;           const r11 = -sz*sy*sx + cz*cx; const r12 = -sz*sy*cx - cz*sx;
-      const r20 = -sy;              const r21 =  cy*sx;            const r22 =  cy*cx;
-
-      arr[base+0]=r00; arr[base+1]=r01; arr[base+2]=r02; arr[base+3]=position.x;
-      arr[base+4]=r10; arr[base+5]=r11; arr[base+6]=r12; arr[base+7]=position.y;
-      arr[base+8]=r20; arr[base+9]=r21; arr[base+10]=r22; arr[base+11]=position.z;
-    };
-
+    let arr: Float32Array;
+    let base = 0;
     if (typeof destBase === "number") {
-      write(this._metaF32, destBase);
+      arr = this._metaF32;
+      base = destBase | 0;
     } else {
-      // dest is a 12-lane array starting at 0
-      write(destBase as Float32Array, 0);
+      arr = destBase as Float32Array;
     }
+
+    const px = position.x, py = position.y, pz = position.z;
+
+    const k = e.units === "deg" ? Math.PI / 180 : 1;
+    const yawZ   = e.yawZ   * k;
+    const pitchY = e.pitchY * k;
+    const rollX  = e.rollX  * k;
+
+    const cz = Math.cos(yawZ),   sz = Math.sin(yawZ);
+    const cy = Math.cos(pitchY), sy = Math.sin(pitchY);
+    const cx = Math.cos(rollX),  sx = Math.sin(rollX);
+
+    const r00 =  cz * cy;
+    const r01 =  cz * sy * sx + sz * cx;
+    const r02 =  cz * sy * cx - sz * sx;
+
+    const r10 = -sz * cy;
+    const r11 = -sz * sy * sx + cz * cx;
+    const r12 = -sz * sy * cx - cz * sx;
+
+    const r20 = -sy;
+    const r21 =  cy * sx;
+    const r22 =  cy * cx;
+
+    arr[base + 0]  = r00; arr[base + 1]  = r01; arr[base + 2]  = r02; arr[base + 3]  = px;
+    arr[base + 4]  = r10; arr[base + 5]  = r11; arr[base + 6]  = r12; arr[base + 7]  = py;
+    arr[base + 8]  = r20; arr[base + 9]  = r21; arr[base + 10] = r22; arr[base + 11] = pz;
   }
+
 
   /** out = a * b (allows aliasing with out==a or out==b when all are base indices in META). */
   private _mul3x4_To_(aBase: number, bBase: number | Float32Array, outBase: number): void {
