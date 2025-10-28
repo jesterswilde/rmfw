@@ -19,12 +19,22 @@ export class Engine {
     return this.initPromise;
   }
 
-  async createViewport(width: number, height: number): Promise<ResizableView> {
+  async createViewport(
+    width: number,
+    height: number,
+    canvas?: HTMLCanvasElement
+  ): Promise<ResizableView> {
     await this.ensureReady();
     if (!this.scene) {
       throw new Error("Scene runtime not initialised");
     }
-    const view = new CanvasView(this.scene, this.nextViewId++, width, height);
+    const view = new CanvasView(
+      this.scene,
+      this.nextViewId++,
+      width,
+      height,
+      canvas
+    );
     this.views.add(view);
 
     const originalDispose = view.dispose.bind(view);
