@@ -1,10 +1,12 @@
 // =============================
 // Node Editor — Stage 4 (Main)
 // =============================
+// node.ts
 
 import { render } from "./drawing.js";
 import type { Vec2, NodeModel, NodeID, GraphState } from "./interfaces.js";
 import { refreshStyles } from "./styles.js";
+import { showContextMenu, type MenuItem } from "../ui/contextMenu.js";
 
 // ------- Setup -------
 
@@ -29,6 +31,18 @@ const state: GraphState = {
   dragOffsets: new Map<NodeID, Vec2>(),
   marquee: { active: false, anchor: null, current: null, baseSelection: null },
   hasDragSelectionMoved: false
+};
+
+// ------- Node Types -------
+
+type NodeTypeId = 'geometry' | 'transform' | 'material' | 'output' | 'math' | 'group';
+const NODE_TYPES: Record<NodeTypeId, { label: string; size: Vec2 }> = {
+  geometry:  { label: 'Geometry',        size: { x: 160, y: 80 } },
+  transform: { label: 'Transform',       size: { x: 180, y: 88 } },
+  material:  { label: 'Material',        size: { x: 170, y: 80 } },
+  output:    { label: 'Render Output',   size: { x: 200, y: 96 } },
+  math:      { label: 'Math',            size: { x: 140, y: 72 } },
+  group:     { label: 'Group',           size: { x: 180, y: 96 } },
 };
 
 // ------- Canvas sizing / DPR -------
@@ -83,7 +97,7 @@ function bringToFrontByIDs(ids: Set<string>){
   state.nodes = [...front, ...back];
 }
 
-// ------- Selection helpers -------
+// ------- Selection -------
 
 function setSingleSelection(id: NodeID) {
   state.selectedIDs.clear();
@@ -94,6 +108,9 @@ function toggleSelection(id: NodeID) {
   if (state.selectedIDs.has(id)) state.selectedIDs.delete(id);
   else { state.selectedIDs.add(id); state.lastActiveID = id; }
 }
+
+// ------- Drag -------
+
 function startDragForSelection(at: Vec2) {
   state.dragOffsets.clear();
   for (const id of state.selectedIDs) {
@@ -111,7 +128,7 @@ function moveDraggedNodes(to: Vec2) {
   }
 }
 
-// ------- Marquee helpers -------
+// ------- Marquee -------
 
 function rectFromPoints(a: Vec2, b: Vec2) {
   const x = Math.min(a.x, b.x), y = Math.min(a.y, b.y);
@@ -131,7 +148,7 @@ function updateMarqueeSelection() {
   state.selectedIDs = new Set([...base, ...fresh]);
 }
 
-// ------- Node lifecycle -------
+// ------- Lifecycle -------
 
 let counter = 1;
 function nextId(base = "node"): NodeID {
@@ -139,15 +156,13 @@ function nextId(base = "node"): NodeID {
   do { id = `${base}-${counter++}`; } while (state.nodes.some(n => n.id === id));
   return id;
 }
-function createNode(at?: Vec2) {
-  const { width, height } = canvas.getBoundingClientRect();
-  const fallback: Vec2 = { x: width / 2, y: height / 2 };
-  const p = at ?? lastPointerCanvasPos ?? fallback;
+function createNodeOfType(type: NodeTypeId, at: Vec2) {
+  const spec = NODE_TYPES[type];
   const newNode: NodeModel = {
-    id: nextId(),
-    label: "Node",
-    position: { x: Math.round(p.x - 80), y: Math.round(p.y - 40) },
-    size: { x: 160, y: 80 }
+    id: nextId(type),
+    label: spec.label,
+    position: { x: Math.round(at.x - spec.size.x / 2), y: Math.round(at.y - spec.size.y / 2) },
+    size: { ...spec.size }
   };
   state.nodes.push(newNode);
   setSingleSelection(newNode.id);
@@ -156,8 +171,7 @@ function createNode(at?: Vec2) {
 }
 function deleteSelected() {
   if (!state.selectedIDs.size) return;
-  const keep = state.nodes.filter(n => !state.selectedIDs.has(n.id));
-  state.nodes = keep;
+  state.nodes = state.nodes.filter(n => !state.selectedIDs.has(n.id));
   state.selectedIDs.clear();
   state.lastActiveID = null;
   render(state);
@@ -283,7 +297,8 @@ function onKeyDown(e: KeyboardEvent) {
   }
   if (!mod && (e.key === 'n' || e.key === 'N')) {
     e.preventDefault();
-    createNode();
+    const p = lastPointerCanvasPos ?? { x: canvas.width / 2, y: canvas.height / 2 };
+    createNodeOfType('group', p);
     return;
   }
   if (e.key === 'Escape') {
@@ -293,6 +308,54 @@ function onKeyDown(e: KeyboardEvent) {
   }
 }
 window.addEventListener('keydown', onKeyDown);
+
+// ------- Context Menu -------
+
+canvas.addEventListener('contextmenu', (ev) => {
+  const ptCanvas = getCanvasPoint(ev);
+  const target = hitTest(ptCanvas);
+
+  if (target) {
+    if (!state.selectedIDs.has(target.id)) setSingleSelection(target.id);
+    else state.lastActiveID = target.id;
+
+    const multi = state.selectedIDs.size > 1;
+    const items: MenuItem[] = multi
+      ? [
+          { kind: "action", id: "delete:selected", label: "Delete Selected" },
+        ]
+      : [
+          { kind: "action", id: "delete:one", label: `Delete "${target.label}"` },
+        ];
+
+    showContextMenu(ev, items, (id) => {
+      if (id === "delete:selected") deleteSelected();
+      if (id === "delete:one") {
+        state.selectedIDs = new Set<NodeID>([target.id]);
+        deleteSelected();
+      }
+    });
+    render(state);
+  } else {
+    const createItems: MenuItem[] = [
+      { kind: "submenu", label: "Create", items: [
+        { kind: "action", id: "create:geometry",  label: NODE_TYPES.geometry.label },
+        { kind: "action", id: "create:transform", label: NODE_TYPES.transform.label },
+        { kind: "action", id: "create:material",  label: NODE_TYPES.material.label },
+        { kind: "action", id: "create:output",    label: NODE_TYPES.output.label },
+        { kind: "separator" },
+        { kind: "action", id: "create:math",      label: NODE_TYPES.math.label },
+        { kind: "action", id: "create:group",     label: NODE_TYPES.group.label },
+      ]},
+    ];
+
+    showContextMenu(ev, createItems, (id) => {
+      if (!id.startsWith('create:')) return;
+      const t = id.split(':')[1] as NodeTypeId;
+      createNodeOfType(t, ptCanvas);
+    });
+  }
+});
 
 // ------- Resize / Init -------
 
