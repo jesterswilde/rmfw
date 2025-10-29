@@ -130,6 +130,12 @@ export class Mat34Pool {
     return this._gpuBuffer;
   }
 
+  writeRangeToGPU(startID: number, endID: number){
+    const byteOffset = startID * Mat34Pool.Layout.BYTES_PER_GPU;
+    const bytes = new Uint8Array(this._gpuMirrorBuffer, byteOffset, (startID - endID + 1) * Mat34Pool.Layout.BYTES_PER_GPU);
+    if (!this._device || !this._gpuBuffer) return;
+    this._device.queue.writeBuffer(this._gpuBuffer, byteOffset, bytes);
+  }
   /** Upload entire inverseWorld mirror buffer. */
   writeAllToGPU(): void {
     if (!this._device || !this._gpuBuffer) return;

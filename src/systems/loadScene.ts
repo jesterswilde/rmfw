@@ -3,6 +3,7 @@ import { Mat34Pool } from "../pools/matrix.js";
 import { NodeTree } from "../pools/nodeTree.js";
 import { EntityType, type Entity } from "../entityDef.js";
 import { Vector3, type EulerZYX } from "../utils/math.js";
+import { propagateTransforms } from "./propegatTransforms.js";
 
 const toEulerZYX = (r: number[]): EulerZYX => ({
   yawZ: r?.[0] ?? 0,
@@ -131,7 +132,6 @@ export function parseScene(obj: any, nodes: NodeTree, entities: EntityPool, mats
 
   nodes.writeAllToGPU();
   entities.writeAllToGPU();
-  mats.writeAllToGPU();
 
   return obj.nodes.length
 }

@@ -101,8 +101,10 @@ export class Scene {
 
   async loadScene(sceneLocation: string) {
     const sceneObj = await load(sceneLocation, 'json');
-    // Fill pools
+
     parseScene(sceneObj, this._nodes, this._entities, this._matrices);
+    propagateTransforms(this._nodes, this._matrices);
+    //Repack doesn't carry over dirty flags so it's important that propegation happens first
     repack(this._nodes, this._entities, this._matrices);
 
     this._nodesVersion = this._nodes.version;
