@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Node Editor — Step 1</title>
+    <link rel="stylesheet" href="/dist/graphEditor/styles/node.css" />
+  </head>
+  <body>
+    <header class="app-header">
+      <h1>Node Editor — Step 1</h1>
+      <div class="hint">Click a node to select • Click empty canvas to deselect</div>
+    </header>
+
+    <main class="app-main">
+      <canvas id="node-canvas" width="1200" height="700" aria-label="Node Editor Canvas"></canvas>
+    </main>
+
+    <!--
+      IMPORTANT: Browsers don't execute TypeScript directly. Compile main.ts -> main.js.
+      After compiling, make sure this script tag points at the emitted JS file.
+    -->
+    <script type="module" src="./dist/graphEditor/node.js"></script>
+  </body>
+</html>

@@ -1,0 +1,25 @@
+:root {
+  /* existing colors… */
+  --bg: #0f1115;
+  --panel: #151822;
+  --ink: #e8ecf1;
+  --ink-muted: #98a2b3;
+  --accent: #6aa3ff;
+  --accent-2: #5de4c7;
+  --node: #1c2230;
+  --node-stroke: #2b3345;
+  --node-selected: #2a3550;
+  --grid-1: #161a24;
+  --grid-2: #121620;
+
+  /* NEW: node canvas styling tokens */
+  --node-radius: 12;          /* px */
+  --node-title-h: 26;         /* px */
+  --stroke-normal: 1;         /* px */
+  --stroke-selected: 2;       /* px */
+
+  /* text */
+  --font-ui: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Inter, Arial;
+  --font-weight-strong: 600;
+  --font-size-label: 12;      /* px */
+}
