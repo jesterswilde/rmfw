@@ -1,7 +1,6 @@
 // =============================
-// Node Editor — Stage 3 (Main)
+// Node Editor — Stage 4 (Main)
 // =============================
-// node.ts
 
 import { render } from "./drawing.js";
 import type { Vec2, NodeModel, NodeID, GraphState } from "./interfaces.js";
@@ -77,14 +76,11 @@ function bringToFrontById(id: NodeID) {
   }
 }
 function bringToFrontByIDs(ids: Set<string>){
-    const front: NodeModel[] = []
-    const back: NodeModel[] = []
-    for(const node of state.nodes)
-        if(ids.has(node.id))
-            back.push(node)
-        else
-            front.push(node)
-    state.nodes = [...front, ...back]
+  const front: NodeModel[] = [];
+  const back: NodeModel[] = [];
+  for (const node of state.nodes)
+    (ids.has(node.id) ? back : front).push(node);
+  state.nodes = [...front, ...back];
 }
 
 // ------- Selection helpers -------
@@ -94,12 +90,10 @@ function setSingleSelection(id: NodeID) {
   state.selectedIDs.add(id);
   state.lastActiveID = id;
 }
-
 function toggleSelection(id: NodeID) {
   if (state.selectedIDs.has(id)) state.selectedIDs.delete(id);
   else { state.selectedIDs.add(id); state.lastActiveID = id; }
 }
-
 function startDragForSelection(at: Vec2) {
   state.dragOffsets.clear();
   for (const id of state.selectedIDs) {
@@ -108,7 +102,6 @@ function startDragForSelection(at: Vec2) {
   }
   state.dragging = state.selectedIDs.size > 0;
 }
-
 function moveDraggedNodes(to: Vec2) {
   for (const id of state.selectedIDs) {
     const n = state.nodes.find(nn => nn.id === id)!;
@@ -134,20 +127,53 @@ function updateMarqueeSelection() {
   const { x, y, width, height } = rectFromPoints(state.marquee.anchor, state.marquee.current);
   const fresh = new Set<NodeID>();
   for (const n of state.nodes) if (intersectsNode(x, y, width, height, n)) fresh.add(n.id);
-
   const base = state.marquee.baseSelection ?? new Set<NodeID>();
   state.selectedIDs = new Set([...base, ...fresh]);
+}
+
+// ------- Node lifecycle -------
+
+let counter = 1;
+function nextId(base = "node"): NodeID {
+  let id: string;
+  do { id = `${base}-${counter++}`; } while (state.nodes.some(n => n.id === id));
+  return id;
+}
+function createNode(at?: Vec2) {
+  const { width, height } = canvas.getBoundingClientRect();
+  const fallback: Vec2 = { x: width / 2, y: height / 2 };
+  const p = at ?? lastPointerCanvasPos ?? fallback;
+  const newNode: NodeModel = {
+    id: nextId(),
+    label: "Node",
+    position: { x: Math.round(p.x - 80), y: Math.round(p.y - 40) },
+    size: { x: 160, y: 80 }
+  };
+  state.nodes.push(newNode);
+  setSingleSelection(newNode.id);
+  bringToFrontById(newNode.id);
+  render(state);
+}
+function deleteSelected() {
+  if (!state.selectedIDs.size) return;
+  const keep = state.nodes.filter(n => !state.selectedIDs.has(n.id));
+  state.nodes = keep;
+  state.selectedIDs.clear();
+  state.lastActiveID = null;
+  render(state);
 }
 
 // ------- Interaction -------
 
 let pointerDownAt: Vec2 | null = null;
+let lastPointerCanvasPos: Vec2 | null = null;
 const DRAG_THRESHOLD = 3;
 
 canvas.addEventListener('pointerdown', (evt) => {
   if (evt.button !== 0) return;
   canvas.setPointerCapture(evt.pointerId);
   const pt = getCanvasPoint(evt);
+  lastPointerCanvasPos = pt;
   pointerDownAt = pt;
 
   const target = hitTest(pt);
@@ -155,26 +181,24 @@ canvas.addEventListener('pointerdown', (evt) => {
 
   if (target) {
     if (additive){
-        state.hasDragSelectionMoved = false;
-        toggleSelection(target.id);
+      state.hasDragSelectionMoved = false;
+      toggleSelection(target.id);
+    } else if (!state.selectedIDs.has(target.id)) {
+      bringToFrontById(target.id);
+      setSingleSelection(target.id);
+    } else {
+      state.lastActiveID = target.id;
     }
-    else if (!state.selectedIDs.has(target.id)) {
-        bringToFrontById(target.id)
-        setSingleSelection(target.id);
-    }
-    else 
-        state.lastActiveID = target.id;
 
     if(!state.hasDragSelectionMoved){
-        state.hasDragSelectionMoved = true;
-        bringToFrontByIDs(state.selectedIDs)
+      state.hasDragSelectionMoved = true;
+      bringToFrontByIDs(state.selectedIDs);
     }
 
     startDragForSelection(pt);
     canvas.style.cursor = 'grabbing';
     render(state);
   } else {
-    // start marquee
     state.selectedIDs.clear();
     state.marquee.active = true;
     state.marquee.anchor = pt;
@@ -189,6 +213,7 @@ canvas.addEventListener('pointerdown', (evt) => {
 
 canvas.addEventListener('pointermove', (evt) => {
   const pt = getCanvasPoint(evt);
+  lastPointerCanvasPos = pt;
 
   if (state.marquee.active) {
     state.marquee.current = pt;
@@ -211,7 +236,6 @@ canvas.addEventListener('pointermove', (evt) => {
     render(state);
   }
 
-  // promote to drag if moved enough while pointer is down on a selected node
   if (pointerDownAt && state.selectedIDs.size && over && state.selectedIDs.has(over.id)) {
     const dx = Math.abs(pt.x - pointerDownAt.x);
     const dy = Math.abs(pt.y - pointerDownAt.y);
@@ -241,12 +265,34 @@ function endPointer(evt: PointerEvent) {
 
 canvas.addEventListener('pointerup', endPointer);
 canvas.addEventListener('pointercancel', endPointer);
-canvas.addEventListener('pointerleave', (e) => {
+canvas.addEventListener('pointerleave', () => {
   if (!state.dragging && !state.marquee.active) {
     if (state.hoverID) { state.hoverID = null; render(state); }
     canvas.style.cursor = 'default';
   }
 });
+
+// ------- Keyboard -------
+
+function onKeyDown(e: KeyboardEvent) {
+  const mod = e.ctrlKey || e.metaKey;
+  if (e.key === 'Delete' || e.key === 'Backspace') {
+    e.preventDefault();
+    deleteSelected();
+    return;
+  }
+  if (!mod && (e.key === 'n' || e.key === 'N')) {
+    e.preventDefault();
+    createNode();
+    return;
+  }
+  if (e.key === 'Escape') {
+    state.selectedIDs.clear();
+    state.lastActiveID = null;
+    render(state);
+  }
+}
+window.addEventListener('keydown', onKeyDown);
 
 // ------- Resize / Init -------
 
