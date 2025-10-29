@@ -6,11 +6,15 @@ import { getInputs, setupInputListeners } from "../inputs.js";
 import { moveCam, rotateCam } from "../camera.js";
 import type { ResizableView } from "./interface.js";
 
+const DEFAULT_CANVAS_ID = "scene-canvas";
+
 export class Engine {
   private initPromise: Promise<void> | null = null;
   private scene: Scene | null = null;
   private views = new Set<CanvasView>();
   private nextViewId = 1;
+  private startPromise: Promise<void> | null = null;
+  private mainView: ResizableView | null = null;
 
   async ensureReady(): Promise<void> {
     if (!this.initPromise) {
@@ -50,6 +54,83 @@ export class Engine {
     view.dispose();
   }
 
+  start(canvasId = DEFAULT_CANVAS_ID): Promise<void> {
+    if (!this.startPromise) {
+      this.startPromise = this.startInternal(canvasId).catch((err) => {
+        this.startPromise = null;
+        throw err;
+      });
+    }
+    return this.startPromise;
+  }
+
+  private async startInternal(canvasId: string): Promise<void> {
+    if (typeof document === "undefined") {
+      return;
+    }
+
+    if (document.readyState === "loading") {
+      await new Promise<void>((resolve) => {
+        document.addEventListener("DOMContentLoaded", () => resolve(), {
+          once: true,
+        });
+      });
+    }
+
+    const canvas = document.getElementById(canvasId);
+    if (!(canvas instanceof HTMLCanvasElement)) {
+      console.error(`Missing #${canvasId} canvas element`);
+      return;
+    }
+
+    const { width, height } = this.measureCanvas(canvas);
+
+    try {
+      const view = await this.createViewport(width, height, canvas);
+      this.mainView = view;
+
+      if (typeof window !== "undefined") {
+        window.addEventListener(
+          "beforeunload",
+          () => {
+            if (this.mainView === view) {
+              this.mainView = null;
+            }
+            this.destroyViewport(view);
+          },
+          { once: true }
+        );
+      }
+    } catch (err) {
+      console.error("Failed to initialise viewport", err);
+      throw err;
+    }
+  }
+
+  private measureCanvas(canvas: HTMLCanvasElement): {
+    width: number;
+    height: number;
+  } {
+    const rect = canvas.getBoundingClientRect();
+    const fallbackWidth =
+      typeof window !== "undefined" ? window.innerWidth : canvas.width;
+    const fallbackHeight =
+      typeof window !== "undefined" ? window.innerHeight : canvas.height;
+
+    const width = Math.max(
+      1,
+      Math.floor(rect.width || canvas.clientWidth || canvas.width || fallbackWidth)
+    );
+    const height = Math.max(
+      1,
+      Math.floor(
+        rect.height || canvas.clientHeight || canvas.height || fallbackHeight
+      )
+    );
+
+    return { width, height };
+  }
+
   private async init(): Promise<void> {
     const gpuManager = await GPUDeviceManager.get();
     setupInputListeners();
@@ -80,3 +161,5 @@ export class Engine {
     loop.start();
   }
 }
+
+export const engine = new Engine();
