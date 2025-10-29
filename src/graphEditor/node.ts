@@ -1,5 +1,5 @@
 import { render } from "./drawing.js";
-import { NODE_TYPES, type GraphState, type NodeID, type NodeModel, type NodeTypeId, type Vec2, defaultPortsForNode } from "./interfaces.js";
+import { NODE_TYPES, type GraphState, type NodeID, type NodeModel, type NodeTypeId, type Vec2, defaultPortsForNode, ModelTypes } from "./interfaces.js";
 import { setSingleSelection } from "./selection.js";
 
 export function bringToFrontById(state: GraphState, id: NodeID) {
@@ -27,6 +27,7 @@ export function createNodeOfType(state: GraphState, type: NodeTypeId, at: Vec2) 
   const spec = NODE_TYPES[type];
   const newNode: NodeModel = {
     id: nextId(state, type),
+    kind: ModelTypes.Node,
     type,
     label: spec.label,
     position: { x: Math.round(at.x - spec.size.x / 2), y: Math.round(at.y - spec.size.y / 2) },

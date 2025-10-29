@@ -9,8 +9,15 @@ export type ConnectionID = string;
 export type SelectionMode = 'node' | 'connection';
 export type PortSide = 'input' | 'output';
 
+export enum ModelTypes {
+  Port,
+  Connection,
+  Node
+}
+
 export interface PortModel {
   id: PortID;
+  kind: ModelTypes.Port
   name: string;
   side: PortSide;
   index: number;
@@ -23,12 +30,14 @@ export interface NodePorts {
 
 export interface ConnectionModel {
   id: ConnectionID;
+  kind: ModelTypes.Connection;
   from: { nodeId: NodeID; portId: PortID };
   to:   { nodeId: NodeID; portId: PortID };
 }
 
 export interface NodeModel {
   id: NodeID;
+  kind: ModelTypes.Node;
   label: string;
   position: Vec2;
   size: Vec2;
@@ -85,7 +94,7 @@ export function defaultPortsForNode(n: NodeModel): NodePorts {
   const allowIn = n.type !== 'geometry';
   const allowOut = n.type !== 'output';
   return {
-    inputs: allowIn ? [{ id: `${n.id}:in0`, name: 'in', side: 'input', index: 0 }] : [],
-    outputs: allowOut ? [{ id: `${n.id}:out0`, name: 'out', side: 'output', index: 0 }] : [],
+    inputs: allowIn ? [{ id: `${n.id}:in0`, kind: ModelTypes.Port, name: 'in', side: 'input', index: 0 }] : [],
+    outputs: allowOut ? [{ id: `${n.id}:out0`, kind: ModelTypes.Port, name: 'out', side: 'output', index: 0 }] : [],
   };
 }

@@ -10,6 +10,7 @@ import {
   connectionIntersectsRect
 } from "./helpers.js";
 import {
+    ModelTypes,
   NODE_TYPES,
   type GraphState,
   type NodeID,
@@ -27,7 +28,10 @@ import {
   setSingleSelection,
   toggleSelection,
   rectFromPoints,
-  intersectsNode
+  intersectsNode,
+  clearAllSelections,
+  clearConnSelection,
+  clearNodeSelection
 } from "./selection.js";
 
 const DRAG_THRESHOLD = 3;
@@ -44,16 +48,6 @@ function resolvePriorityTarget(
     : (nodeHit ?? connHit ?? null);
 }
 
-function clearNodeSelection(state: GraphState) {
-  if (state.selectedIDs.size) state.selectedIDs.clear();
-}
-function clearConnSelection(state: GraphState) {
-  if (state.selectedConnectionIDs.size) state.selectedConnectionIDs.clear();
-}
-function clearAllSelections(state: GraphState) {
-  clearNodeSelection(state);
-  clearConnSelection(state);
-}
 
 export const makePointerDown = (state: GraphState) => (evt: PointerEvent) => {
   const { canvas } = state;
@@ -63,7 +57,7 @@ export const makePointerDown = (state: GraphState) => (evt: PointerEvent) => {
   state.lastPointerCanvasPos = pt;
   state.pointerDownAt = pt;
 
-  // Start wire from either side; starting clears all selections
+  // Port click -> Start wire from either side; starting clears all selections
   const portHit =
     hitTestPort(state, pt) ??
     (state.hoverPortID ? findPortById(state, state.hoverPortID) : null);
@@ -86,7 +80,7 @@ export const makePointerDown = (state: GraphState) => (evt: PointerEvent) => {
   const additive = evt.shiftKey;
 
   // Connection click → enter connection mode, clear node selection
-  if (target && "from" in target && "to" in target) {
+  if (target?.kind === ModelTypes.Connection) {
     state.selectionMode = "connection";
     clearNodeSelection(state);
     if (additive) {
@@ -101,7 +95,7 @@ export const makePointerDown = (state: GraphState) => (evt: PointerEvent) => {
   }
 
   // Node click → enter node mode, clear connection selection
-  if (target && "position" in target) {
+  if (target?.kind === ModelTypes.Node) {
     state.selectionMode = "node";
     clearConnSelection(state);
 
@@ -169,7 +163,7 @@ export const makePointerMove = (state: GraphState) => (evt: PointerEvent) => {
   if (state.marquee.active) {
     state.marquee.current = pt;
 
-    // --- Marquee PREVIEW that follows "single-type" rule dynamically ---
+    // --- Marquee hover PREVIEW ---
     const { x, y, width, height } = rectFromPoints(
       state.marquee.anchor!,
       state.marquee.current!
@@ -311,6 +305,7 @@ export const makePointerEnd = (state: GraphState) => (evt: PointerEvent) => {
           const newConnId = `conn-${state.nextID++}`;
           state.connections.push({
             id: newConnId,
+            kind: ModelTypes.Connection,
             from: {
               nodeId: outputEnd.node.id,
               portId: outputEnd.port.id,

@@ -37,7 +37,7 @@ Delete nodes
 
 Keyboard shortcuts (Delete, Copy/Paste future)
 
-### 🔜 Stage 5 — Ports + Connections
+### ✅ Stage 5 — Ports + Connections
 
 Render input/output ports
 
@@ -51,21 +51,29 @@ Note:
     We ahve selection modes, it defaults to node. If we have ea connection selected, then we are in connection selection mode. We can only select things in the given mode we are (except for single click, that just goes to the top thing we hit) 
     Shift and Marquee work for whatever mode we are in.
 
-### Stage 6 - Module Ports
+### 🔜 Stage 6 - Module Ports
 
 Distinguish connection types:
 
-Transform hierarchy / Render pipeline / material graph
+Port types types: Transform hierarchy / Render pipeline.
+    Only ports of like types can connect to each other.
+    Ports can have names (which you'll see when you hover of them, type and the optional name)
+    A node may have multiple ports of the same type
+    A port can define amount how many connections it may have (a finite number, or unlimited)
+
+    Ports and connections of a given type should be colored similarly. 
 
 Node types should be modular so I can add more later and it should just slot in. 
 
-### Stage 6 - Persistance
+Tooltips: Hovering over a port should tell you the type.
+
+### Stage 7 - Persistance
 
 Persistence: save/load graph to JSON
 
 Save/Load to both local storage and files
 
-### Stage 7 — Subgraphs ("Subnetworks")
+### Stage 8 — Subgraphs ("Subnetworks")
 
 Group nodes into a sub‑view
 
@@ -75,7 +83,7 @@ Enter/exit subgraph UI
 
 Visualization breadcrumbs
 
-### Stage 8 — UI View and reading real data
+### Stage 9 — UI View and reading real data
 
 Sidebar inspector to edit node labels & parameters
 
@@ -83,7 +91,7 @@ Better input widgets (numbers, dropdowns, etc.)
 
 Alignment & layout helpers (snap/grid logic)
 
-### Stage 9 — Advanced Graph Features
+### Stage 10 — Advanced Graph Features
 
 Undo/redo stack
 
@@ -93,7 +101,7 @@ Graph evaluation scheduling
 
 History and debug overlays
 
-### Stage 10 — Visual Polish
+### Stage 11 — Visual Polish
 
 Smooth animations for move/select
 

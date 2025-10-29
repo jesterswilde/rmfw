@@ -57,3 +57,14 @@ export function updateMarqueeSelection(state: GraphState) {
     state.selectedIDs = new Set([...base, ...fresh]);
   }
 }
+
+export function clearNodeSelection(state: GraphState) {
+  if (state.selectedIDs.size) state.selectedIDs.clear();
+}
+export function clearConnSelection(state: GraphState) {
+  if (state.selectedConnectionIDs.size) state.selectedConnectionIDs.clear();
+}
+export function clearAllSelections(state: GraphState) {
+  clearNodeSelection(state);
+  clearConnSelection(state);
+}

@@ -47,14 +47,14 @@ export function portAnchor(n: NodeModel, p: PortModel): Vec2 {
   return { x, y };
 }
 
-export function hitTestPort(state: GraphState, pt: Vec2): { node: NodeModel; port: PortModel } | null {
+export function hitTestPort(state: GraphState, pt: Vec2): { kind: "PortHit", node: NodeModel; port: PortModel } | null {
   for (let i = state.nodes.length - 1; i >= 0; i--) {
     const n = state.nodes[i]!;
     const ports = [...(n.ports?.inputs ?? []), ...(n.ports?.outputs ?? [])];
     for (const p of ports) {
       const a = portAnchor(n, p);
       const dx = pt.x - a.x, dy = pt.y - a.y;
-      if (dx*dx + dy*dy <= PORT_HIT_R * PORT_HIT_R) return { node: n, port: p };
+      if (dx*dx + dy*dy <= PORT_HIT_R * PORT_HIT_R) return { kind: "PortHit", node: n, port: p };
     }
   }
   return null;

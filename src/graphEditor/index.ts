@@ -1,4 +1,4 @@
-import { type Vec2, type NodeModel, type NodeID, type GraphState, type NodeTypeId, defaultPortsForNode } from "./interfaces.js";
+import { type Vec2, type NodeModel, type NodeID, type GraphState, type NodeTypeId, defaultPortsForNode, ModelTypes } from "./interfaces.js";
 import { makeContextMenu, makeKeyDown, makePointerDown, makePointerEnd, makePointerLeave, makePointerMove, makeResizeOrThemeChange } from "./listeners.js";
 
 const canvas = document.getElementById('node-canvas') as HTMLCanvasElement;
@@ -8,10 +8,10 @@ if (!ctx) throw new Error('2D context not available');
 
 // Seed nodes with explicit NodeTypeId so `type` doesn't widen to string
 const baseNodes: NodeModel[] = [
-  { id: 'geo',   type: 'geometry' as NodeTypeId,  label: 'Geometry',       position: { x: 120,  y: 120 },  size: { x: 160, y: 80 } },
-  { id: 'xform', type: 'transform' as NodeTypeId, label: 'Transform',      position: { x: 360,  y: 240 },  size: { x: 180, y: 88 } },
-  { id: 'mat',   type: 'material' as NodeTypeId,  label: 'Material',       position: { x: 660,  y: 180 },  size: { x: 170, y: 80 } },
-  { id: 'out',   type: 'output' as NodeTypeId,    label: 'Render Output',  position: { x: 920,  y: 280 },  size: { x: 200, y: 96 } }
+  { id: 'geo', kind: ModelTypes.Node,   type: 'geometry' as NodeTypeId,  label: 'Geometry',       position: { x: 120,  y: 120 },  size: { x: 160, y: 80 } },
+  { id: 'xform', kind: ModelTypes.Node, type: 'transform' as NodeTypeId, label: 'Transform',      position: { x: 360,  y: 240 },  size: { x: 180, y: 88 } },
+  { id: 'mat', kind: ModelTypes.Node,   type: 'material' as NodeTypeId,  label: 'Material',       position: { x: 660,  y: 180 },  size: { x: 170, y: 80 } },
+  { id: 'out', kind: ModelTypes.Node,   type: 'output' as NodeTypeId,    label: 'Render Output',  position: { x: 920,  y: 280 },  size: { x: 200, y: 96 } }
 ];
 
 // Attach ports after the array is strongly typed as NodeModel[]
