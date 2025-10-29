@@ -12,6 +12,8 @@ export interface Styles {
   effects: {
     hoverOutlineAlpha: number;     // 0..1
     selectionGlowAlpha: number;    // 0..1
+    marqueeFillAlpha: number;      // 0..1
+    marqueeStrokeAlpha: number;    // 0..1
   };
 }
 
@@ -54,6 +56,8 @@ function readStyles(): Styles {
     effects: {
       hoverOutlineAlpha: 0.5,
       selectionGlowAlpha: 0.25,
+      marqueeFillAlpha: 0.15,
+      marqueeStrokeAlpha: 0.9,
     }
   };
 }

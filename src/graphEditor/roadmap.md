@@ -22,7 +22,7 @@ Maintain z‑order (bring to front on select/drag)
 
 Visual feedback: hover states & selection outlines
 
-### 🔜 Stage 3 — Multi‑Selection + Gestures
+### ✅ Stage 3 — Multi‑Selection + Gestures
 
 Marquee selection rectangle
 
@@ -30,26 +30,34 @@ Shift‑click additive selection
 
 Move multiple nodes together
 
-### Stage 4 — Ports + Connections
-
-Render input/output ports
-
-Click‑drag to create connections
-
-Distinguish connection types:
-
-Transform hierarchy
-
-Render pipeline / material graph
-
-Basic dependency ordering for rendering
-
-### Stage 5 — Node Lifecycle
+### 🔜 Stage 4 — Node Lifecycle
 Create new nodes
 
 Delete nodes
 
 Keyboard shortcuts (Delete, Copy/Paste future)
+
+### Stage 5 — Ports + Connections
+
+Render input/output ports
+
+Click‑drag to create connections
+
+Can click on a connection to select it
+
+Should be able to delete a connection that is selected. 
+
+Note: 
+    We ahve selection modes, it defaults to node. If we have ea connection selected, then we are in connection selection mode. We can only select things in the given mode we are (except for single click, that just goes to the top thing we hit) 
+    Shift and Marquee work for whatever mode we are in.
+
+### Stage 6 - Module Ports
+
+Distinguish connection types:
+
+Transform hierarchy / Render pipeline / material graph
+
+Node types should be modular so I can add more later and it should just slot in. 
 
 ### Stage 6 - Persistance
 
