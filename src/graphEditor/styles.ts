@@ -2,6 +2,9 @@ export interface Styles {
   colors: {
     bg: string; panel: string; ink: string; inkMuted: string;
     accent: string; accent2: string; node: string; nodeStroke: string; nodeSelected: string;
+    portFill?: string;
+    connection?: string;
+    connectionSelected?: string;
   };
   node: {
     radius: number; titleH: number; strokeW: number; strokeWSelected: number;
@@ -10,10 +13,10 @@ export interface Styles {
     family: string; weightStrong: number; sizeLabel: number; colorLabel: string;
   };
   effects: {
-    hoverOutlineAlpha: number;     // 0..1
-    selectionGlowAlpha: number;    // 0..1
-    marqueeFillAlpha: number;      // 0..1
-    marqueeStrokeAlpha: number;    // 0..1
+    hoverOutlineAlpha: number;
+    selectionGlowAlpha: number;
+    marqueeFillAlpha: number;
+    marqueeStrokeAlpha: number;
   };
 }
 
@@ -40,6 +43,9 @@ function readStyles(): Styles {
       node: cssVar('--node') || '#1c2230',
       nodeStroke: cssVar('--node-stroke') || '#2b3345',
       nodeSelected: cssVar('--node-selected') || '#2a3550',
+      portFill: cssVar('--port-fill') || '#e8ecf1',
+      connection: cssVar('--connection') || '#5f6b85',
+      connectionSelected: cssVar('--connection-selected') || cssVar('--accent') || '#6aa3ff',
     },
     node: {
       radius: cssNumber('--node-radius', 12),

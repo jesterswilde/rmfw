@@ -4,19 +4,44 @@ export type NodeTypeId = 'geometry' | 'transform' | 'material' | 'output' | 'mat
 export interface Vec2 { x: number; y: number }
 export interface NodeRect { x: number; y: number; width: number; height: number; }
 
+export type PortID = string;
+export type ConnectionID = string;
+export type SelectionMode = 'node' | 'connection';
+export type PortSide = 'input' | 'output';
+
+export interface PortModel {
+  id: PortID;
+  name: string;
+  side: PortSide;
+  index: number;
+}
+
+export interface NodePorts {
+  inputs: PortModel[];
+  outputs: PortModel[];
+}
+
+export interface ConnectionModel {
+  id: ConnectionID;
+  from: { nodeId: NodeID; portId: PortID };
+  to:   { nodeId: NodeID; portId: PortID };
+}
+
 export interface NodeModel {
   id: NodeID;
   label: string;
-  position: Vec2; // top-left in canvas coords
-  size: Vec2;     // width / height
+  position: Vec2;
+  size: Vec2;
   selected?: boolean;
+  type?: NodeTypeId;
+  ports?: NodePorts;
 }
 
 export interface MarqueeState {
   active: boolean;
-  anchor: Vec2 | null;     // pointer-down origin in canvas space
-  current: Vec2 | null;    // current pointer in canvas space
-  baseSelection: Set<NodeID> | null; // selection snapshot at start (for additive)
+  anchor: Vec2 | null;
+  current: Vec2 | null;
+  baseSelection: Set<string> | null;
 }
 
 export const NODE_TYPES: Record<NodeTypeId, { label: string; size: Vec2 }> = {
@@ -28,19 +53,39 @@ export const NODE_TYPES: Record<NodeTypeId, { label: string; size: Vec2 }> = {
   group:     { label: 'Group',           size: { x: 180, y: 96 } },
 };
 
+export interface WireDragState {
+  active: boolean;
+  from?: { nodeId: NodeID; portId: PortID };
+  toPos?: Vec2 | null;
+}
 
 export interface GraphState {
   nodes: NodeModel[];
+  connections: ConnectionModel[];
   selectedIDs: Set<NodeID>;
+  selectedConnectionIDs: Set<ConnectionID>;
+  selectionMode: SelectionMode;
   lastActiveID: NodeID | null;
   hoverID: NodeID | null;
+  hoverConnectionID: ConnectionID | null;
+  hoverPortID: PortID | null;                 // NEW
   dragging: boolean;
-  dragOffsets: Map<NodeID, Vec2>; // per selected node offset = pointer - node.position
+  dragOffsets: Map<NodeID, Vec2>;
   hasDragSelectionMoved: boolean;
   marquee: MarqueeState;
   ctx: CanvasRenderingContext2D;
   canvas: HTMLCanvasElement;
   pointerDownAt: Vec2 | null
   lastPointerCanvasPos: Vec2 | null
+  wireDrag: WireDragState
   nextID: number
+}
+
+export function defaultPortsForNode(n: NodeModel): NodePorts {
+  const allowIn = n.type !== 'geometry';
+  const allowOut = n.type !== 'output';
+  return {
+    inputs: allowIn ? [{ id: `${n.id}:in0`, name: 'in', side: 'input', index: 0 }] : [],
+    outputs: allowOut ? [{ id: `${n.id}:out0`, name: 'out', side: 'output', index: 0 }] : [],
+  };
 }

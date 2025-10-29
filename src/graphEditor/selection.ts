@@ -1,4 +1,5 @@
 import type { GraphState, NodeID, NodeModel, Vec2 } from "./interfaces.js";
+import { connectionIntersectsRect } from "./helpers.js";
 
 export function setSingleSelection(state: GraphState, id: NodeID) {
   state.selectedIDs.clear();
@@ -27,7 +28,7 @@ export function moveDraggedNodes(state: GraphState, to: Vec2) {
   }
 }
 
-// ------- Marquee -------
+/* ---- Marquee ---- */
 
 export function rectFromPoints(a: Vec2, b: Vec2) {
   const x = Math.min(a.x, b.x), y = Math.min(a.y, b.y);
@@ -42,8 +43,17 @@ export function intersectsNode(mx: number, my: number, mw: number, mh: number, n
 export function updateMarqueeSelection(state: GraphState) {
   if (!state.marquee.active || !state.marquee.anchor || !state.marquee.current) return;
   const { x, y, width, height } = rectFromPoints(state.marquee.anchor, state.marquee.current);
-  const fresh = new Set<NodeID>();
-  for (const n of state.nodes) if (intersectsNode(x, y, width, height, n)) fresh.add(n.id);
-  const base = state.marquee.baseSelection ?? new Set<NodeID>();
-  state.selectedIDs = new Set([...base, ...fresh]);
+
+  if (state.selectionMode === 'connection') {
+    const fresh = new Set<string>();
+    for (const c of state.connections)
+      if (connectionIntersectsRect(state, c, x, y, width, height)) fresh.add(c.id);
+    const base = state.marquee.baseSelection ?? new Set<string>();
+    state.selectedConnectionIDs = new Set([...base, ...fresh]);
+  } else {
+    const fresh = new Set<NodeID>();
+    for (const n of state.nodes) if (intersectsNode(x, y, width, height, n)) fresh.add(n.id);
+    const base = state.marquee.baseSelection ?? new Set<NodeID>();
+    state.selectedIDs = new Set([...base, ...fresh]);
+  }
 }

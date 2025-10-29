@@ -1,43 +1,43 @@
-// =============================
-// Node Editor — Stage 4 (Main)
-// =============================
-// index.ts
-
-import { type Vec2, type NodeModel, type NodeID, type GraphState } from "./interfaces.js";
+import { type Vec2, type NodeModel, type NodeID, type GraphState, type NodeTypeId, defaultPortsForNode } from "./interfaces.js";
 import { makeContextMenu, makeKeyDown, makePointerDown, makePointerEnd, makePointerLeave, makePointerMove, makeResizeOrThemeChange } from "./listeners.js";
-
-// ------- Setup -------
 
 const canvas = document.getElementById('node-canvas') as HTMLCanvasElement;
 if (!canvas) throw new Error('Canvas element #node-canvas not found');
 const ctx = canvas.getContext('2d');
 if (!ctx) throw new Error('2D context not available');
 
+// Seed nodes with explicit NodeTypeId so `type` doesn't widen to string
+const baseNodes: NodeModel[] = [
+  { id: 'geo',   type: 'geometry' as NodeTypeId,  label: 'Geometry',       position: { x: 120,  y: 120 },  size: { x: 160, y: 80 } },
+  { id: 'xform', type: 'transform' as NodeTypeId, label: 'Transform',      position: { x: 360,  y: 240 },  size: { x: 180, y: 88 } },
+  { id: 'mat',   type: 'material' as NodeTypeId,  label: 'Material',       position: { x: 660,  y: 180 },  size: { x: 170, y: 80 } },
+  { id: 'out',   type: 'output' as NodeTypeId,    label: 'Render Output',  position: { x: 920,  y: 280 },  size: { x: 200, y: 96 } }
+];
+
+// Attach ports after the array is strongly typed as NodeModel[]
+for (const n of baseNodes) n.ports = defaultPortsForNode(n);
+
 const state: GraphState = {
   canvas,
   ctx,
-  nodes: [
-    { id: 'geo',   label: 'Geometry', position: { x: 120,  y: 120 },  size: { x: 160, y: 80 } },
-    { id: 'xform', label: 'Transform', position: { x: 360,  y: 240 }, size: { x: 180, y: 88 } },
-    { id: 'mat',   label: 'Material', position: { x: 660,  y: 180 },  size: { x: 170, y: 80 } },
-    { id: 'out',   label: 'Render Output', position: { x: 920, y: 280 }, size: { x: 200, y: 96 } }
-  ],
+  nodes: baseNodes,
+  connections: [],
   selectedIDs: new Set<NodeID>(),
+  selectedConnectionIDs: new Set(),
+  selectionMode: 'node',
   lastActiveID: null,
   hoverID: null,
+  hoverConnectionID: null,
   dragging: false,
   dragOffsets: new Map<NodeID, Vec2>(),
   marquee: { active: false, anchor: null, current: null, baseSelection: null },
   hasDragSelectionMoved: false,
   pointerDownAt: null,
   lastPointerCanvasPos: null,
+  wireDrag: { active: false, toPos: null },
   nextID: 1
 };
 
-// ------- Lifecycle -------
-
-
-// ------- Interaction -------
 canvas.addEventListener('pointerdown', makePointerDown(state))
 canvas.addEventListener('pointermove', makePointerMove(state));
 canvas.addEventListener('pointerup', makePointerEnd(state));

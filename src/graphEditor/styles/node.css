@@ -11,6 +11,9 @@
   --node-selected: #2a3550;
   --grid-1: #161a24;
   --grid-2: #121620;
+  --port-fill: #e8ecf1;
+  --connection: #5f6b85;
+  --connection-selected: var(--accent);
 
   /* --- Node & Stroke Sizes (read by TS) --- */
   --node-radius: 12;          /* px */
