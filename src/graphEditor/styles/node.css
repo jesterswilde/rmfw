@@ -22,4 +22,11 @@
   --font-ui: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Inter, Arial;
   --font-weight-strong: 600;
   --font-size-label: 12;      /* px */
+
+  #node-canvas {
+    cursor: default;
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: none; /* enables smooth pointer capture / prevents touch scrolling */
+  }
 }
