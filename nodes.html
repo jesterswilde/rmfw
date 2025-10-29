@@ -16,11 +16,6 @@
     <main class="app-main">
       <canvas id="node-canvas" width="1200" height="700" aria-label="Node Editor Canvas"></canvas>
     </main>
-
-    <!--
-      IMPORTANT: Browsers don't execute TypeScript directly. Compile main.ts -> main.js.
-      After compiling, make sure this script tag points at the emitted JS file.
-    -->
-    <script type="module" src="./dist/graphEditor/node.js"></script>
+    <script type="module" src="dist/graphEditor/index.js"></script>
   </body>
 </html>

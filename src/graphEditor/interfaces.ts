@@ -1,4 +1,5 @@
 export type NodeID = string;
+export type NodeTypeId = 'geometry' | 'transform' | 'material' | 'output' | 'math' | 'group';
 
 export interface Vec2 { x: number; y: number }
 export interface NodeRect { x: number; y: number; width: number; height: number; }
@@ -18,6 +19,16 @@ export interface MarqueeState {
   baseSelection: Set<NodeID> | null; // selection snapshot at start (for additive)
 }
 
+export const NODE_TYPES: Record<NodeTypeId, { label: string; size: Vec2 }> = {
+  geometry:  { label: 'Geometry',        size: { x: 160, y: 80 } },
+  transform: { label: 'Transform',       size: { x: 180, y: 88 } },
+  material:  { label: 'Material',        size: { x: 170, y: 80 } },
+  output:    { label: 'Render Output',   size: { x: 200, y: 96 } },
+  math:      { label: 'Math',            size: { x: 140, y: 72 } },
+  group:     { label: 'Group',           size: { x: 180, y: 96 } },
+};
+
+
 export interface GraphState {
   nodes: NodeModel[];
   selectedIDs: Set<NodeID>;
@@ -29,4 +40,7 @@ export interface GraphState {
   marquee: MarqueeState;
   ctx: CanvasRenderingContext2D;
   canvas: HTMLCanvasElement;
+  pointerDownAt: Vec2 | null
+  lastPointerCanvasPos: Vec2 | null
+  nextID: number
 }
