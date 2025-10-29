@@ -34,9 +34,9 @@ export function hitTestNode(state: GraphState, pt: Vec2): NodeModel | null {
   return null;
 }
 
-// Visual port radius is ~5px; expand hit area to ~2x with a minimum.
+// Visual port radius ~5px; bigger hit area
 const PORT_VISUAL_R = 5;
-const PORT_HIT_R = Math.max(11, PORT_VISUAL_R * 3);
+const PORT_HIT_R = Math.max(11, PORT_VISUAL_R * 2);
 
 const PORT_SPACING = 18;
 const PORT_TOP_OFFSET = 32;
@@ -60,6 +60,16 @@ export function hitTestPort(state: GraphState, pt: Vec2): { node: NodeModel; por
   return null;
 }
 
+/* Find a port by its id (used by listeners + drawing for wire-drag) */
+export function findPortById(state: GraphState, portId: string | null) {
+  if (!portId) return null;
+  for (const n of state.nodes) {
+    for (const p of n.ports?.inputs ?? []) if (p.id === portId) return { node: n, port: p };
+    for (const p of n.ports?.outputs ?? []) if (p.id === portId) return { node: n, port: p };
+  }
+  return null;
+}
+
 function bezierPoints(state: GraphState, c: ConnectionModel) {
   const fromNode = state.nodes.find(n => n.id === c.from.nodeId)!;
   const toNode   = state.nodes.find(n => n.id === c.to.nodeId)!;
@@ -73,13 +83,12 @@ function bezierPoints(state: GraphState, c: ConnectionModel) {
   return { p0, p1, p2, p3 };
 }
 
-// Slightly larger hit threshold + more samples for smoother hover
+// Larger hit for connections and smooth hover
 export function hitTestConnection(state: GraphState, pt: Vec2) {
   const threshold = 9;
   for (let i = state.connections.length - 1; i >= 0; i--) {
     const c = state.connections[i]!;
     const { p0, p1, p2, p3 } = bezierPoints(state, c);
-    // quick endpoint proximity helps near ports
     if (Math.hypot(pt.x - p0.x, pt.y - p0.y) <= threshold) return c;
     if (Math.hypot(pt.x - p3.x, pt.y - p3.y) <= threshold) return c;
 

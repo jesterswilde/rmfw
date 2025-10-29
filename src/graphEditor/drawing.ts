@@ -1,6 +1,6 @@
 import type { NodeRect, NodeModel, GraphState, ConnectionModel } from "./interfaces.js";
 import { styles } from "./styles.js";
-import { portAnchor } from "./helpers.js";
+import { portAnchor, findPortById } from "./helpers.js";
 
 /* Nodes */
 
@@ -126,17 +126,21 @@ function drawConnection(state: GraphState, c: ConnectionModel, { selected = fals
   ctx.restore();
 }
 
+/* Wire preview while dragging: now supports starting from input OR output */
 function drawWireDrag(state: GraphState) {
   if (!state.wireDrag.active || !state.wireDrag.from || !state.wireDrag.toPos) return;
-  const { ctx } = state;
-  const fromNode = state.nodes.find(n => n.id === state.wireDrag.from!.nodeId)!;
-  const fromPort = fromNode.ports!.outputs.find(p => p.id === state.wireDrag.from!.portId)!;
-  const p0 = portAnchor(fromNode, fromPort);
-  const p3 = state.wireDrag.toPos!;
-  const dx = Math.max(40, Math.abs(p3.x - p0.x) * 0.5);
-  const p1 = { x: p0.x + dx, y: p0.y };
-  const p2 = { x: p3.x - dx, y: p3.y };
 
+  const start = findPortById(state, state.wireDrag.from.portId);
+  if (!start) return;
+
+  const p0 = portAnchor(start.node, start.port);
+  const p3 = state.wireDrag.toPos!;
+  const sign = start.port.side === 'output' ? +1 : -1;
+  const dx = Math.max(40, Math.abs(p3.x - p0.x) * 0.5);
+  const p1 = { x: p0.x + sign * dx, y: p0.y };
+  const p2 = { x: p3.x - sign * dx, y: p3.y };
+
+  const { ctx } = state;
   ctx.save();
   ctx.lineWidth = 2;
   ctx.setLineDash([6, 4]);

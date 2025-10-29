@@ -35,7 +35,8 @@ const state: GraphState = {
   pointerDownAt: null,
   lastPointerCanvasPos: null,
   wireDrag: { active: false, toPos: null },
-  nextID: 1
+  nextID: 1,
+  hoverPortID: null
 };
 
 canvas.addEventListener('pointerdown', makePointerDown(state))

@@ -1,15 +1,20 @@
 import { type MenuItem, showContextMenu } from "../ui/contextMenu.js";
 import { render } from "./drawing.js";
-import { fitCanvasToDisplaySize, getCanvasPoint, hitTestNode, hitTestPort, hitTestConnection } from "./helpers.js";
+import { fitCanvasToDisplaySize, getCanvasPoint, hitTestNode, hitTestPort, hitTestConnection, findPortById } from "./helpers.js";
 import { NODE_TYPES, type GraphState, type NodeID, type NodeTypeId } from "./interfaces.js";
 import { bringToFrontById, bringToFrontByIDs, createNodeOfType, deleteSelected } from "./node.js";
 import { startDragForSelection, updateMarqueeSelection, moveDraggedNodes, setSingleSelection, toggleSelection } from "./selection.js";
 
 const DRAG_THRESHOLD = 3;
 
-function resolvePriorityTarget(state: GraphState, nodeHit: ReturnType<typeof hitTestNode>, connHit: ReturnType<typeof hitTestConnection>) {
-  if (state.selectionMode === "connection") return connHit ?? nodeHit ?? null;
-  return nodeHit ?? connHit ?? null;
+function resolvePriorityTarget(
+  state: GraphState,
+  nodeHit: ReturnType<typeof hitTestNode>,
+  connHit: ReturnType<typeof hitTestConnection>,
+  portHit: ReturnType<typeof hitTestPort>
+) {
+  if (portHit) return portHit;
+  return state.selectionMode === "connection" ? (connHit ?? nodeHit ?? null) : (nodeHit ?? connHit ?? null);
 }
 
 export const makePointerDown = (state: GraphState)=>
@@ -21,9 +26,9 @@ export const makePointerDown = (state: GraphState)=>
     state.lastPointerCanvasPos = pt;
     state.pointerDownAt = pt;
 
-    // Ports first (wire start)
-    const portHit = hitTestPort(state, pt);
-    if (portHit && portHit.port.side === "output") {
+    // Start wire from EITHER side (input OR output). Keep click==hover via no-op fallback.
+    const portHit = hitTestPort(state, pt) ?? (state.hoverPortID ? findPortById(state, state.hoverPortID) : null);
+    if (portHit) {
       state.wireDrag.active = true;
       state.wireDrag.from = { nodeId: portHit.node.id, portId: portHit.port.id };
       state.wireDrag.toPos = pt;
@@ -34,10 +39,10 @@ export const makePointerDown = (state: GraphState)=>
 
     const nodeHit = hitTestNode(state, pt);
     const connHit = hitTestConnection(state, pt);
-    const target = resolvePriorityTarget(state, nodeHit, connHit);
+    const target = resolvePriorityTarget(state, nodeHit, connHit, null);
     const additive = evt.shiftKey;
 
-    if (target && "from" in target) {
+    if (target && "from" in target && "to" in target) {
       if (additive) {
         if (state.selectedConnectionIDs.has(target.id)) state.selectedConnectionIDs.delete(target.id);
         else state.selectedConnectionIDs.add(target.id);
@@ -71,7 +76,7 @@ export const makePointerDown = (state: GraphState)=>
       return;
     }
 
-    // Empty space — marquee in current mode
+    // Empty space → marquee
     if (state.selectionMode === "connection") state.selectedConnectionIDs.clear();
     else state.selectedIDs.clear();
     state.marquee.active = true;
@@ -93,14 +98,19 @@ export const makePointerMove = (state:GraphState)=>
     if (state.wireDrag.active) {
       state.wireDrag.toPos = pt;
 
-      // Port hover even during wire drag
+      // Hover precedence while wiring: port → connection → node
       const portHit = hitTestPort(state, pt);
-      const newHoverPort = portHit ? portHit.port.id : null;
-      if (newHoverPort !== state.hoverPortID) {
-        state.hoverPortID = newHoverPort;
-      }
+      const connHit = portHit ? null : hitTestConnection(state, pt);
+      const nodeHit = (portHit || connHit) ? null : hitTestNode(state, pt);
 
-      state.canvas.style.cursor = portHit ? "pointer" : "default";
+      // Single hover target by precedence
+      state.hoverPortID = portHit ? portHit.port.id : null;
+      state.hoverConnectionID = state.hoverPortID ? null : (connHit ? connHit.id : null);
+      state.hoverID = (state.hoverPortID || state.hoverConnectionID) ? null : (nodeHit ? nodeHit.id : null);
+
+      state.canvas.style.cursor = (state.hoverPortID || state.hoverConnectionID || state.hoverID) ? "pointer" : "default";
+
+      // Always render during wire drag
       render(state);
       return;
     }
@@ -118,25 +128,32 @@ export const makePointerMove = (state:GraphState)=>
       return;
     }
 
-    // Always compute all hovers
-    const overPort = hitTestPort(state, pt);
-    const overNode = hitTestNode(state, pt);
-    const overConn = hitTestConnection(state, pt);
-
-    const newHoverNode = overNode ? overNode.id : null;
-    const newHoverConn = overConn ? overConn.id : null;
-    const newHoverPort = overPort ? overPort.port.id : null;
+    // Normal hover precedence: port → connection → node
+    const portHit = hitTestPort(state, pt);
+    const connHit = portHit ? null : hitTestConnection(state, pt);
+    const nodeHit = (portHit || connHit) ? null : hitTestNode(state, pt);
 
     let needRender = false;
-    if (newHoverNode !== state.hoverID) { state.hoverID = newHoverNode; needRender = true; }
-    if (newHoverConn !== state.hoverConnectionID) { state.hoverConnectionID = newHoverConn; needRender = true; }
+    const newHoverPort = portHit ? portHit.port.id : null;
     if (newHoverPort !== state.hoverPortID) { state.hoverPortID = newHoverPort; needRender = true; }
+    if (state.hoverPortID) {
+      if (state.hoverConnectionID !== null) { state.hoverConnectionID = null; needRender = true; }
+      if (state.hoverID !== null) { state.hoverID = null; needRender = true; }
+    } else {
+      const newHoverConn = connHit ? connHit.id : null;
+      if (newHoverConn !== state.hoverConnectionID) { state.hoverConnectionID = newHoverConn; needRender = true; }
+      if (state.hoverConnectionID) {
+        if (state.hoverID !== null) { state.hoverID = null; needRender = true; }
+      } else {
+        const newHoverNode = nodeHit ? nodeHit.id : null;
+        if (newHoverNode !== state.hoverID) { state.hoverID = newHoverNode; needRender = true; }
+      }
+    }
 
-    const anyHover = !!(newHoverNode || newHoverConn || newHoverPort);
-    const cur = anyHover ? "pointer" : "default";
-    if (state.canvas.style.cursor !== cur) state.canvas.style.cursor = cur;
+    state.canvas.style.cursor = (state.hoverPortID || state.hoverConnectionID || state.hoverID) ? "pointer" : "default";
 
-    if (state.pointerDownAt && state.selectedIDs.size && overNode && state.selectedIDs.has(overNode.id)) {
+    // Drag start: threshold only
+    if (state.pointerDownAt && state.selectedIDs.size) {
       const dx = Math.abs(pt.x - state.pointerDownAt.x);
       const dy = Math.abs(pt.y - state.pointerDownAt.y);
       if (dx > DRAG_THRESHOLD || dy > DRAG_THRESHOLD) {
@@ -155,27 +172,44 @@ export const makePointerEnd = (state: GraphState) =>
     const pt = state.lastPointerCanvasPos;
 
     if (state.wireDrag.active) {
-      const hit = pt ? hitTestPort(state, pt) : null;
-      if (hit && hit.port.side === "input" && state.wireDrag.from) {
-        const newConnId = `conn-${state.nextID++}`;
-        state.connections.push({
-          id: newConnId,
-          from: { nodeId: state.wireDrag.from.nodeId, portId: state.wireDrag.from.portId },
-          to:   { nodeId: hit.node.id, portId: hit.port.id }
-        });
-        state.selectedConnectionIDs = new Set([newConnId]);
-        state.selectionMode = "connection";
+      // Click == hover; prefer direct hit, fall back to hover port
+      const directHit = pt ? hitTestPort(state, pt) : null;
+      const hoverFallback = state.hoverPortID ? findPortById(state, state.hoverPortID) : null;
+      const end = directHit ?? hoverFallback;
+
+      if (end && state.wireDrag.from) {
+        const start = findPortById(state, state.wireDrag.from.portId);
+        if (start) {
+          const startSide = start.port.side;
+          const endSide = end.port.side;
+
+          if (startSide !== endSide) {
+            const outputEnd = startSide === 'output' ? start : end;
+            const inputEnd  = startSide === 'output' ? end   : start;
+
+            const newConnId = `conn-${state.nextID++}`;
+            state.connections.push({
+              id: newConnId,
+              from: { nodeId: outputEnd.node.id, portId: outputEnd.port.id },
+              to:   { nodeId: inputEnd.node.id,  portId: inputEnd.port.id  }
+            });
+            state.selectedConnectionIDs = new Set([newConnId]);
+            state.selectionMode = "connection";
+          }
+          // if same side, ignore (invalid)
+        }
       }
+
       state.wireDrag = { active: false, toPos: null };
 
+      // Refresh hover
       if (pt) {
-        const overPort = hitTestPort(state, pt);
-        const overNode = hitTestNode(state, pt);
-        const overConn = hitTestConnection(state, pt);
-        state.hoverPortID = overPort ? overPort.port.id : null;
-        state.hoverID = overNode ? overNode.id : null;
-        state.hoverConnectionID = overConn ? overConn.id : null;
-        state.canvas.style.cursor = (state.hoverID || state.hoverConnectionID || state.hoverPortID) ? "pointer" : "default";
+        const portHit = hitTestPort(state, pt);
+        const connHit = portHit ? null : hitTestConnection(state, pt);
+        const nodeHit = (portHit || connHit) ? null : hitTestNode(state, pt);
+        state.hoverPortID = portHit ? portHit.port.id : null;
+        state.hoverConnectionID = state.hoverPortID ? null : (connHit ? connHit.id : null);
+        state.hoverID = (state.hoverPortID || state.hoverConnectionID) ? null : (nodeHit ? nodeHit.id : null);
       }
 
       render(state);
@@ -194,7 +228,7 @@ export const makePointerEnd = (state: GraphState) =>
     state.canvas.releasePointerCapture(evt.pointerId);
     state.pointerDownAt = null;
 
-    state.canvas.style.cursor = (state.hoverID || state.hoverConnectionID || state.hoverPortID) ? "pointer" : "default";
+    state.canvas.style.cursor = (state.hoverPortID || state.hoverConnectionID || state.hoverID) ? "pointer" : "default";
     render(state);
   };
 
@@ -245,17 +279,17 @@ export const makeKeyDown = (state: GraphState)=>
 export const makeContextMenu = (state: GraphState)=>
   (ev: MouseEvent)=> {
     const ptCanvas = getCanvasPoint(state, ev);
-    const nodeHit = hitTestNode(state, ptCanvas);
-    const connHit = hitTestConnection(state, ptCanvas);
-    const target = resolvePriorityTarget(state, nodeHit, connHit);
+    const portHit = hitTestPort(state, ptCanvas);
+    const connHit = portHit ? null : hitTestConnection(state, ptCanvas);
+    const nodeHit = (portHit || connHit) ? null : hitTestNode(state, ptCanvas);
 
-    if (target && "from" in target) {
+    if (connHit) {
       state.selectionMode = "connection";
-      state.selectedConnectionIDs = new Set([target.id]);
+      state.selectedConnectionIDs = new Set([connHit.id]);
       const items: MenuItem[] = [{ kind: "action", id: "delete:conn", label: "Delete Connection" }];
       showContextMenu(ev, items, (id) => {
         if (id === "delete:conn") {
-          state.connections = state.connections.filter(c => c.id !== target.id);
+          state.connections = state.connections.filter(c => c.id !== connHit.id);
           state.selectedConnectionIDs.clear();
           render(state);
         }
@@ -263,20 +297,20 @@ export const makeContextMenu = (state: GraphState)=>
       return;
     }
 
-    if (target && "position" in target) {
-      if (!state.selectedIDs.has(target.id)) setSingleSelection(state, target.id);
-      else state.lastActiveID = target.id;
+    if (nodeHit) {
+      if (!state.selectedIDs.has(nodeHit.id)) setSingleSelection(state, nodeHit.id);
+      else state.lastActiveID = nodeHit.id;
       state.selectionMode = "node";
 
       const multi = state.selectedIDs.size > 1;
       const items: MenuItem[] = multi
         ? [{ kind: "action", id: "delete:selected", label: "Delete Selected" }]
-        : [{ kind: "action", id: "delete:one", label: `Delete "${target.label}"` }];
+        : [{ kind: "action", id: "delete:one", label: `Delete "${nodeHit.label}"` }];
 
       showContextMenu(ev, items, (id) => {
         if (id === "delete:selected") deleteSelected(state);
         if (id === "delete:one") {
-          state.selectedIDs = new Set<NodeID>([target.id]);
+          state.selectedIDs = new Set<NodeID>([nodeHit.id]);
           deleteSelected(state);
         }
       });
