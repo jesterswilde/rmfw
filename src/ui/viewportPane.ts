@@ -1,6 +1,6 @@
 import type { LeafNode } from "./types.js";
 import type { ResizableView } from "../scene/interface.js";
-import { getSceneEngine } from "../main.js";
+import { engine } from "../scene/runtime.js";
 
 type ActiveViewport = {
   view: ResizableView;
@@ -29,7 +29,6 @@ export function mountViewportPane(
   };
 
   const setupViewport = async () => {
-    const engine = getSceneEngine();
     try {
       const rect = container.getBoundingClientRect();
       const width = Math.max(1, Math.floor(rect.width || 1));

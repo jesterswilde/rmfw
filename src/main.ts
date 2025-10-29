@@ -1,11 +1,5 @@
-import { Engine } from "./scene/runtime.js";
+import { engine } from "./scene/runtime.js";
 
-const runtime = new Engine();
-
-runtime.ensureReady().catch((err) => {
-  console.error("Failed to initialise scene runtime", err);
+engine.start().catch((err) => {
+  console.error("Failed to start scene engine", err);
 });
-
-export function getSceneEngine(): Engine {
-  return runtime;
-}
