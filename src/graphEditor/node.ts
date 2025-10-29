@@ -1,5 +1,6 @@
 import { render } from "./drawing.js";
 import { NODE_TYPES, type GraphState, type NodeID, type NodeModel, type NodeTypeId, type Vec2 } from "./interfaces.js";
+import { setSingleSelection } from "./selection.js";
 
 export function bringToFrontById(state: GraphState, id: NodeID) {
   const idx = state.nodes.findIndex(n => n.id === id);
@@ -14,16 +15,6 @@ export function bringToFrontByIDs(state: GraphState, ids: Set<string>){
   for (const node of state.nodes)
     (ids.has(node.id) ? back : front).push(node);
   state.nodes = [...front, ...back];
-}
-
-export function setSingleSelection(state: GraphState, id: NodeID) {
-  state.selectedIDs.clear();
-  state.selectedIDs.add(id);
-  state.lastActiveID = id;
-}
-export function toggleSelection(state: GraphState, id: NodeID) {
-  if (state.selectedIDs.has(id)) state.selectedIDs.delete(id);
-  else { state.selectedIDs.add(id); state.lastActiveID = id; }
 }
 
 export function nextId(state: GraphState, base = "node"): NodeID {

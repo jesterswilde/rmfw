@@ -30,14 +30,14 @@ Shift‑click additive selection
 
 Move multiple nodes together
 
-### 🔜 Stage 4 — Node Lifecycle
+### ✅ Stage 4 — Node Lifecycle
 Create new nodes
 
 Delete nodes
 
 Keyboard shortcuts (Delete, Copy/Paste future)
 
-### Stage 5 — Ports + Connections
+### 🔜 Stage 5 — Ports + Connections
 
 Render input/output ports
 

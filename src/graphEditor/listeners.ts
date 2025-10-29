@@ -3,8 +3,8 @@ import { type MenuItem, showContextMenu } from "../ui/contextMenu.js";
 import { render } from "./drawing.js";
 import { fitCanvasToDisplaySize, getCanvasPoint, hitTest } from "./helpers.js";
 import { NODE_TYPES, type GraphState, type NodeID, type NodeTypeId } from "./interfaces.js";
-import { toggleSelection, bringToFrontById, setSingleSelection, bringToFrontByIDs, createNodeOfType, deleteSelected } from "./node.js";
-import { startDragForSelection, updateMarqueeSelection, moveDraggedNodes } from "./selection.js";
+import { bringToFrontById, bringToFrontByIDs, createNodeOfType, deleteSelected } from "./node.js";
+import { startDragForSelection, updateMarqueeSelection, moveDraggedNodes, setSingleSelection, toggleSelection } from "./selection.js";
 import { refreshStyles } from "./styles.js";
 
 const DRAG_THRESHOLD = 3;

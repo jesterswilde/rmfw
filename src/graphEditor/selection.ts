@@ -1,6 +1,6 @@
 import type { GraphState, NodeID, NodeModel, Vec2 } from "./interfaces.js";
 
-function setSingleSelection(state: GraphState, id: NodeID) {
+export function setSingleSelection(state: GraphState, id: NodeID) {
   state.selectedIDs.clear();
   state.selectedIDs.add(id);
   state.lastActiveID = id;
