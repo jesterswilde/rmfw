@@ -15,12 +15,17 @@ export enum ModelTypes {
   Node
 }
 
+export type PortType = 'transform' | 'render';
+export type PortCapacity = number | 'unlimited';
+
 export interface PortModel {
   id: PortID;
-  kind: ModelTypes.Port
-  name: string;
+  kind: ModelTypes.Port;
+  name?: string;
   side: PortSide;
   index: number;
+  portType: PortType;
+  maxConnections?: PortCapacity;
 }
 
 export interface NodePorts {
@@ -33,6 +38,7 @@ export interface ConnectionModel {
   kind: ModelTypes.Connection;
   from: { nodeId: NodeID; portId: PortID };
   to:   { nodeId: NodeID; portId: PortID };
+  portType: PortType;
 }
 
 export interface NodeModel {
@@ -77,7 +83,7 @@ export interface GraphState {
   lastActiveID: NodeID | null;
   hoverID: NodeID | null;
   hoverConnectionID: ConnectionID | null;
-  hoverPortID: PortID | null;                 // NEW
+  hoverPortID: PortID | null;
   dragging: boolean;
   dragOffsets: Map<NodeID, Vec2>;
   hasDragSelectionMoved: boolean;
@@ -90,11 +96,69 @@ export interface GraphState {
   nextID: number
 }
 
+/* --- Default ports (vertical layout; richer, mixed groups) --- */
 export function defaultPortsForNode(n: NodeModel): NodePorts {
-  const allowIn = n.type !== 'geometry';
-  const allowOut = n.type !== 'output';
-  return {
-    inputs: allowIn ? [{ id: `${n.id}:in0`, kind: ModelTypes.Port, name: 'in', side: 'input', index: 0 }] : [],
-    outputs: allowOut ? [{ id: `${n.id}:out0`, kind: ModelTypes.Port, name: 'out', side: 'output', index: 0 }] : [],
+  const type = n.type ?? 'group';
+
+  let inIdx = 0, outIdx = 0;
+
+  const mkIn = (portType: PortType, name?: string, max: PortCapacity = 1): PortModel => {
+    const base: Omit<PortModel, 'name'> & { name?: string } = {
+      id: `${n.id}:in${inIdx}`,
+      kind: ModelTypes.Port,
+      side: 'input',
+      index: inIdx++,
+      portType,
+      maxConnections: max
+    };
+    if (name !== undefined) (base as PortModel).name = name;
+    return base as PortModel;
   };
+
+  const mkOut = (portType: PortType, name?: string, max: PortCapacity = 'unlimited'): PortModel => {
+    const base: Omit<PortModel, 'name'> & { name?: string } = {
+      id: `${n.id}:out${outIdx}`,
+      kind: ModelTypes.Port,
+      side: 'output',
+      index: outIdx++,
+      portType,
+      maxConnections: max
+    };
+    if (name !== undefined) (base as PortModel).name = name;
+    return base as PortModel;
+  };
+
+  switch (type) {
+    case 'geometry':
+      return {
+        inputs: [],
+        outputs: [mkOut('transform', 'geo')],
+      };
+    case 'transform':
+      return {
+        inputs:  [mkIn('transform', 'in')],
+        outputs: [mkOut('transform', 'out')],
+      };
+    case 'material':
+      return {
+        inputs:  [mkIn('render', 'base'), mkIn('render', 'detail')],
+        outputs: [mkOut('render', 'mat')],
+      };
+    case 'output':
+      return {
+        inputs:  [mkIn('render', 'surface'), mkIn('transform', 'xf')],
+        outputs: [],
+      };
+    case 'math':
+      return {
+        inputs:  [mkIn('render', 'a'), mkIn('render', 'b')],
+        outputs: [mkOut('render', 'sum')],
+      };
+    case 'group':
+    default:
+      return {
+        inputs:  [mkIn('render', 'r-in'), mkIn('transform', 't-in')],
+        outputs: [mkOut('render', 'r-out'), mkOut('transform', 't-out')],
+      };
+  }
 }

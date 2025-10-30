@@ -21,6 +21,14 @@
   --stroke-normal: 1;         /* px */
   --stroke-selected: 2;       /* px */
 
+  /* --- Port Colors --- */
+  --port-transform: #5de4c7;
+  --port-render: #f59e0b;
+  --wire-transform: #34d399;
+  --wire-render: #fbbf24;
+  --tooltip-bg: rgba(0,0,0,0.85);
+  --tooltip-ink: #ffffff;
+
   /* --- Typography (read by TS) --- */
   --font-ui: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Inter, "Helvetica Neue", Arial;
   --font-weight-strong: 600;

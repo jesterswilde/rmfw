@@ -1,5 +1,6 @@
-import type { GraphState, NodeModel, Vec2, ConnectionModel, PortModel } from "./interfaces.js";
+import type { GraphState, NodeModel, Vec2, ConnectionModel, PortModel, PortType } from "./interfaces.js";
 
+/* Canvas coords */
 export function getCanvasPoint(state: GraphState, evt: MouseEvent | PointerEvent): Vec2 {
   const {canvas} = state;
   const rect = canvas.getBoundingClientRect();
@@ -15,16 +16,14 @@ export function getCanvasPoint(state: GraphState, evt: MouseEvent | PointerEvent
 export function fitCanvasToDisplaySize(state: GraphState) {
   const dpr = Math.max(1, window.devicePixelRatio || 1);
   const { width: cssW, height: cssH } = state.canvas.getBoundingClientRect();
-  const desiredW = Math.round(cssW * dpr);
-  const desiredH = Math.round(cssH * dpr);
+  const desiredW = Math.round(cssW * dpr), desiredH = Math.round(cssH * dpr);
   if (state.canvas.width !== desiredW || state.canvas.height !== desiredH) {
     state.canvas.width = desiredW; state.canvas.height = desiredH;
   }
   state.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 }
 
-/* ---- Hit testing ---- */
-
+/* --- Hit testing: nodes --- */
 export function hitTestNode(state: GraphState, pt: Vec2): NodeModel | null {
   for (let i = state.nodes.length - 1; i >= 0; i--) {
     const n = state.nodes[i]!;
@@ -34,33 +33,67 @@ export function hitTestNode(state: GraphState, pt: Vec2): NodeModel | null {
   return null;
 }
 
-// Visual port radius ~5px; bigger hit area
-const PORT_VISUAL_R = 5;
-const PORT_HIT_R = Math.max(11, PORT_VISUAL_R * 2);
+/* --- Port layout (vertical) --- */
+const PORT_VISUAL_R = 8;                         // bigger dot
+const PORT_HIT_R    = Math.max(16, PORT_VISUAL_R * 2);
+const TOP_OFFSET    = 0;                         // 0 = on edge; tweak if you want inset
+const BOTTOM_OFFSET = 0;
 
-const PORT_SPACING = 18;
-const PORT_TOP_OFFSET = 32;
+/* Group and place ports evenly:
+   - Group by portType in side order of declaration
+   - Groups split full width evenly
+   - Ports in a group are spaced at (k+1)/(n+1) across that group's width
+*/
+function sliceSidePorts(n: NodeModel, side: 'input' | 'output'): PortModel[] {
+  return (side === 'input' ? (n.ports?.inputs ?? []) : (n.ports?.outputs ?? []));
+}
+
+function groupSidePorts(n: NodeModel, side: 'input' | 'output'): { type: PortType; list: PortModel[] }[] {
+  const sidePorts = sliceSidePorts(n, side);
+  const groups: { type: PortType; list: PortModel[] }[] = [];
+  for (const p of sidePorts) {
+    const g = groups.find(g => g.type === p.portType);
+    if (g) g.list.push(p);
+    else groups.push({ type: p.portType, list: [p] });
+  }
+  return groups;
+}
+
+function posInGroup(idx: number, count: number) {
+  return (idx + 1) / (count + 1); // 1 item → 0.5; 2 → 0.33, 0.66; etc.
+}
 
 export function portAnchor(n: NodeModel, p: PortModel): Vec2 {
-  const x = p.side === 'input' ? n.position.x : (n.position.x + n.size.x);
-  const y = n.position.y + PORT_TOP_OFFSET + p.index * PORT_SPACING;
+  const side = p.side; // input=top, output=bottom
+  const groups = groupSidePorts(n, side);
+  const groupCount = Math.max(1, groups.length);
+  const fullW = n.size.x;
+  const groupW = fullW / groupCount;
+
+  // Which group and index?
+  const gIndex = groups.findIndex(g => g.list.includes(p));
+  const list   = gIndex >= 0 ? groups[gIndex]!.list : [p];
+  const idxIn  = list.indexOf(p);
+  const frac   = posInGroup(idxIn, list.length);
+
+  const x = n.position.x + gIndex * groupW + frac * groupW;
+  const y = side === 'input' ? (n.position.y + TOP_OFFSET) : (n.position.y + n.size.y - BOTTOM_OFFSET);
   return { x, y };
 }
 
-export function hitTestPort(state: GraphState, pt: Vec2): { kind: "PortHit", node: NodeModel; port: PortModel } | null {
+export function hitTestPort(state: GraphState, pt: Vec2): { node: NodeModel; port: PortModel } | null {
   for (let i = state.nodes.length - 1; i >= 0; i--) {
     const n = state.nodes[i]!;
     const ports = [...(n.ports?.inputs ?? []), ...(n.ports?.outputs ?? [])];
     for (const p of ports) {
       const a = portAnchor(n, p);
       const dx = pt.x - a.x, dy = pt.y - a.y;
-      if (dx*dx + dy*dy <= PORT_HIT_R * PORT_HIT_R) return { kind: "PortHit", node: n, port: p };
+      if (dx*dx + dy*dy <= PORT_HIT_R * PORT_HIT_R) return { node: n, port: p };
     }
   }
   return null;
 }
 
-/* Find a port by its id (used by listeners + drawing for wire-drag) */
 export function findPortById(state: GraphState, portId: string | null) {
   if (!portId) return null;
   for (const n of state.nodes) {
@@ -70,6 +103,7 @@ export function findPortById(state: GraphState, portId: string | null) {
   return null;
 }
 
+/* --- Connections --- */
 function bezierPoints(state: GraphState, c: ConnectionModel) {
   const fromNode = state.nodes.find(n => n.id === c.from.nodeId)!;
   const toNode   = state.nodes.find(n => n.id === c.to.nodeId)!;
@@ -77,13 +111,13 @@ function bezierPoints(state: GraphState, c: ConnectionModel) {
   const toPort   = toNode.ports!.inputs.find(p => p.id === c.to.portId)!;
   const p0 = portAnchor(fromNode, fromPort);
   const p3 = portAnchor(toNode, toPort);
-  const dx = Math.max(40, Math.abs(p3.x - p0.x) * 0.5);
-  const p1 = { x: p0.x + dx, y: p0.y };
-  const p2 = { x: p3.x - dx, y: p3.y };
+
+  const dy = Math.max(40, Math.abs(p3.y - p0.y) * 0.5);
+  const p1 = { x: p0.x, y: p0.y + dy };   // vertical tangents
+  const p2 = { x: p3.x, y: p3.y - dy };
   return { p0, p1, p2, p3 };
 }
 
-// Larger hit for connections and smooth hover
 export function hitTestConnection(state: GraphState, pt: Vec2) {
   const threshold = 9;
   for (let i = state.connections.length - 1; i >= 0; i--) {
@@ -123,3 +157,34 @@ export function connectionIntersectsRect(state: GraphState, c: ConnectionModel, 
   const maxY = Math.max(p0.y, p1.y, p2.y, p3.y);
   return !(rx+rw < minX || maxX < rx || ry+rh < minY || maxY < ry);
 }
+
+export function portTypeOf(state: GraphState, portId: string): PortType | null {
+  const pp = findPortById(state, portId);
+  return pp ? pp.port.portType : null;
+}
+export function countConnectionsFor(state: GraphState, nodeId: string, portId: string): number {
+  let n = 0;
+  for (const c of state.connections) {
+    if ((c.from.nodeId === nodeId && c.from.portId === portId) ||
+        (c.to.nodeId === nodeId && c.to.portId === portId)) n++;
+  }
+  return n;
+}
+export function hasCapacity(state: GraphState, nodeId: string, port: PortModel): boolean {
+  if (!port.maxConnections || port.maxConnections === 'unlimited') return true;
+  return countConnectionsFor(state, nodeId, port.id) < port.maxConnections;
+}
+export function canConnectPorts(
+  state: GraphState,
+  start: { node: NodeModel; port: PortModel },
+  end:   { node: NodeModel; port: PortModel }
+): { ok: true; portType: PortType } | { ok: false } {
+  if (start.port.side === end.port.side) return { ok: false };
+  if (start.port.portType !== end.port.portType) return { ok: false };
+  if (!hasCapacity(state, start.node.id, start.port)) return { ok: false };
+  if (!hasCapacity(state, end.node.id, end.port)) return { ok: false };
+  return { ok: true, portType: start.port.portType };
+}
+
+/* Expose for drawing */
+export const __PORT_VISUAL_R = PORT_VISUAL_R;

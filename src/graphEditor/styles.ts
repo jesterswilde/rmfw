@@ -2,22 +2,16 @@ export interface Styles {
   colors: {
     bg: string; panel: string; ink: string; inkMuted: string;
     accent: string; accent2: string; node: string; nodeStroke: string; nodeSelected: string;
-    portFill?: string;
-    connection?: string;
-    connectionSelected?: string;
+    portTransform: string;        // new
+    portRender: string;           // new
+    wireTransform: string;        // new
+    wireRender: string;           // new
+    tooltipBg: string;            // new
+    tooltipInk: string;           // new
   };
-  node: {
-    radius: number; titleH: number; strokeW: number; strokeWSelected: number;
-  };
-  text: {
-    family: string; weightStrong: number; sizeLabel: number; colorLabel: string;
-  };
-  effects: {
-    hoverOutlineAlpha: number;
-    selectionGlowAlpha: number;
-    marqueeFillAlpha: number;
-    marqueeStrokeAlpha: number;
-  };
+  node: { radius: number; titleH: number; strokeW: number; strokeWSelected: number; };
+  text: { family: string; weightStrong: number; sizeLabel: number; colorLabel: string; };
+  effects: { hoverOutlineAlpha: number; selectionGlowAlpha: number; marqueeFillAlpha: number; marqueeStrokeAlpha: number; };
 }
 
 function cssVar(name: string): string {
@@ -43,9 +37,12 @@ function readStyles(): Styles {
       node: cssVar('--node') || '#1c2230',
       nodeStroke: cssVar('--node-stroke') || '#2b3345',
       nodeSelected: cssVar('--node-selected') || '#2a3550',
-      portFill: cssVar('--port-fill') || '#e8ecf1',
-      connection: cssVar('--connection') || '#5f6b85',
-      connectionSelected: cssVar('--connection-selected') || cssVar('--accent') || '#6aa3ff',
+      portTransform: cssVar('--port-transform') || '#5de4c7',
+      portRender: cssVar('--port-render') || '#f59e0b',
+      wireTransform: cssVar('--wire-transform') || '#34d399',
+      wireRender: cssVar('--wire-render') || '#fbbf24',
+      tooltipBg: cssVar('--tooltip-bg') || 'rgba(0,0,0,0.85)',
+      tooltipInk: cssVar('--tooltip-ink') || '#ffffff',
     },
     node: {
       radius: cssNumber('--node-radius', 12),
