@@ -1,5 +1,5 @@
 // tests/entityAllocator.test.ts
-import { EntityAllocator } from "../src/ecs/core";
+import { EntityAllocator } from "../../src/ecs/core";
 
 describe("EntityAllocator", () => {
   test("create → dense/sparse mapping and isAlive", () => {

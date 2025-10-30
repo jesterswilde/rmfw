@@ -1,6 +1,6 @@
 // tests/testUtils.ts
-import { initWorld } from "../src/ecs/registry";
-import type { World } from "../src/ecs/core";
+import { initWorld } from "../../src/ecs/registry";
+import type { World } from "../../src/ecs/core";
 
 export function makeWorld(cap = 64): World {
   return initWorld({ initialCapacity: cap });

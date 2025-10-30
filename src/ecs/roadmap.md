@@ -27,6 +27,7 @@ Includes:
 - **Define once:** every component in one registry
 - Simple to read about code (low abstractions and indirection)
 - **Verification** Each phase will be accompanied by a test suite that proves functionality.
+- **Expressive Variable Names** We prefer variable names like driverI over d and componentStore or compStore over c.
 ---
 
 ## - [x] Phase 1 — ECS Core (sparse-set) + Registry
@@ -49,7 +50,7 @@ Includes:
 ---
 
 ## - [ ] Phase 2 — Migrate Systems (CPU-only)
-**Outcome:** Replace legacy systems (`propagateTransform`, `loadScene`, `repack`) before WGSL hookup.  
+**Outcome:** Replace legacy systems (`propagateTransform`, `loadScene` ) and create Tree wrappers for hierarchical components.
 
 - [ ] **TransformTree**
   - [ ] `addChild`, `remove`, `reparent`

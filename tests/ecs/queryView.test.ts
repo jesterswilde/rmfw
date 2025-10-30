@@ -1,5 +1,5 @@
 // tests/queryView.test.ts
-import { initWorld } from "../src/ecs/registry";
+import { initWorld, Transform } from "../../src/ecs/registry";
 
 describe("World.queryView", () => {
   test("returns only entities that have all required components", () => {

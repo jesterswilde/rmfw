@@ -1,15 +1,17 @@
-// tests/componentStore.test.ts
-import { ComponentStore, type ComponentSchema } from "../src/ecs/core";
+import { ComponentStore, type ComponentMeta } from "../../src/ecs/core";
 
-const DummySchema: ComponentSchema = {
-  i: { ctor: Int32Array },
-  x: { ctor: Float32Array },
+const DummyMeta: ComponentMeta = {
+  name: "Dummy",
+  fields: [
+    { key: "i", ctor: Int32Array,   default: 0 },
+    { key: "x", ctor: Float32Array, default: 0 },
+  ],
 };
 
 describe("ComponentStore (scalar SoA)", () => {
   test("add initializes zero then applies initial scalars", () => {
     // ensure capacity easily covers entity ids we use
-    const store = new ComponentStore("Dummy", DummySchema, 16);
+    const store = new ComponentStore(DummyMeta, 16);
     const e = 0;
     const row = store.add(e, { i: 42 });
     expect(row).toBe(0);
@@ -24,7 +26,7 @@ describe("ComponentStore (scalar SoA)", () => {
   });
 
   test("update writes only provided fields and bumps rowVersion + storeEpoch", () => {
-    const store = new ComponentStore("Dummy", DummySchema, 16);
+    const store = new ComponentStore(DummyMeta, 16);
     const e = 0;
     store.add(e, { i: 1, x: 2.5 });
     const rvBefore = store.rowVersion[0];
@@ -39,7 +41,7 @@ describe("ComponentStore (scalar SoA)", () => {
   });
 
   test("remove swap-removes and remaps dense<->entity", () => {
-    const store = new ComponentStore("Dummy", DummySchema, 16);
+    const store = new ComponentStore(DummyMeta, 16);
     const a = 0, b = 1, c = 2; // small ids within capacity
     store.add(a, { i: 100 });
     store.add(b, { i: 200 });
@@ -56,7 +58,7 @@ describe("ComponentStore (scalar SoA)", () => {
   });
 
   test("grow doubles capacity and preserves data", () => {
-    const store = new ComponentStore("Dummy", DummySchema, 1);
+    const store = new ComponentStore(DummyMeta, 1);
     for (let e = 0; e < 10; e++) store.add(e, { i: e });
     expect(store.capacity).toBeGreaterThanOrEqual(10);
     expect(store.size).toBe(10);
@@ -68,7 +70,7 @@ describe("ComponentStore (scalar SoA)", () => {
   });
 
   test("update on missing entity is a no-op", () => {
-    const store = new ComponentStore("Dummy", DummySchema, 1);
+    const store = new ComponentStore(DummyMeta, 1);
     const before = store.storeEpoch;
     const ok = store.update(999, { i: 1 });
     expect(ok).toBe(false);

@@ -1,5 +1,8 @@
-// ecs/core.ts
-// Phase 1 core: Entity allocator, scalar-only SoA stores (true SoA), query view, epochs.
+// Phase 1 core (updated):
+// - Entity allocator
+// - Scalar-only SoA stores (true SoA) using self-describing component metadata
+// - Query view
+// - Epochs
 
 export type Entity = number;
 
@@ -7,21 +10,36 @@ export interface WorldConfig {
   initialCapacity?: number; // default 1024
 }
 
-// A field is a single scalar column (true SoA).
-export interface ComponentFieldSpec {
-  ctor: Float32ArrayConstructor | Int32ArrayConstructor | Uint32ArrayConstructor;
+export type ScalarCtor =
+  | Float32ArrayConstructor
+  | Int32ArrayConstructor
+  | Uint32ArrayConstructor;
+
+type TypedArrayLike = Float32Array | Int32Array | Uint32Array;
+
+export interface FieldSpec {
+  /** Column key in the SoA store (stable). */
+  key: string;
+  /** Typed array constructor for the column. */
+  ctor: ScalarCtor;
+  /** Default numeric value for this column (used by loaders/savers). */
+  default?: number;
+  /** True if column stores entity IDs (saves/loaders remap them). */
+  link?: boolean;
 }
 
-export type ComponentSchema = Record<string, ComponentFieldSpec>;
+/** Component metadata: ordered list of fields defines the stable field order. */
+export interface ComponentMeta {
+  name: string;
+  fields: FieldSpec[]; // ORDER MATTERS
+}
 
 export interface QueryView {
   driver: string;
   count: number;
-  entities: Int32Array;                    // [count]
-  rows: Record<string, Int32Array>;        // rows[name][i] = dense row index in that store
+  entities: Int32Array;             // [count]
+  rows: Record<string, Int32Array>; // rows[name][i] = dense row index in that store
 }
-
-type TypedArrayLike = Float32Array | Int32Array | Uint32Array;
 
 const GROW = (n: number) => Math.max(2, n << 1);
 
@@ -50,8 +68,7 @@ export class EntityAllocator {
   private growToFit(id: number) {
     if (id < this._sparse.length) return;
     let newCap = this._sparse.length;
-    while (newCap <= id)
-        newCap = GROW(newCap);
+    while (newCap <= id) newCap = GROW(newCap);
     const newSparse = new Int32Array(newCap).fill(-1);
     newSparse.set(this._sparse);
     const newEntityEpoch = new Uint32Array(newCap);
@@ -97,11 +114,11 @@ export class EntityAllocator {
 }
 
 // ---------------------------------
-// SoA sparse-set store (scalar columns only)
+// SoA sparse-set store (scalar columns only) w/ metadata
 // ---------------------------------
-export class ComponentStore<S extends ComponentSchema> {
+export class ComponentStore<M extends ComponentMeta = ComponentMeta> {
   readonly name: string;
-  readonly schema: S;
+  readonly meta: M;
 
   private _capacity: number;
   private _size = 0;
@@ -110,16 +127,19 @@ export class ComponentStore<S extends ComponentSchema> {
   private _entityToDense: Int32Array;
   private _denseToEntity: Int32Array;
 
-  // one typed array per scalar field
-  private _fields: { [K in keyof S]: InstanceType<S[K]["ctor"]> };
+  // columns keyed by field.key
+  private _columns: Record<string, TypedArrayLike>;
 
   // epochs
   storeEpoch = 0;
   rowVersion: Uint32Array;
 
-  constructor(name: string, schema: S, initialCapacity = 256) {
-    this.name = name;
-    this.schema = schema;
+  // stable field order (same as meta.fields.map(f => f.key))
+  readonly fieldOrder: string[];
+
+  constructor(meta: M, initialCapacity = 256) {
+    this.name = meta.name;
+    this.meta = meta;
 
     const cap = Math.max(1, initialCapacity | 0);
     this._capacity = cap;
@@ -128,21 +148,23 @@ export class ComponentStore<S extends ComponentSchema> {
     this._denseToEntity = new Int32Array(cap).fill(-1);
     this.rowVersion = new Uint32Array(cap);
 
-    // allocate one scalar column per field
-    this._fields = {} as any;
-    for (const key in schema) {
-      const { ctor } = schema[key]!;
-      (this._fields as any)[key] = new ctor(cap);
+    this._columns = Object.create(null);
+    for (const f of meta.fields) {
+      (this._columns as any)[f.key] = new (f.ctor as any)(cap);
     }
+    this.fieldOrder = meta.fields.map(f => f.key);
   }
 
   get size() { return this._size; }
   get capacity() { return this._capacity; }
   get entityToDense() { return this._entityToDense; }
   get denseToEntity() { return this._denseToEntity; }
-  fields(): Readonly<typeof this._fields> { return this._fields; }
 
-  has(entity: number) { return entity >= 0 && entity < this._entityToDense.length && this._entityToDense[entity]! >= 0; }
+  fields(): Readonly<Record<string, TypedArrayLike>> { return this._columns; }
+
+  has(entity: number) {
+    return entity >= 0 && entity < this._entityToDense.length && this._entityToDense[entity]! >= 0;
+  }
   denseIndexOf(entity: number) { return this._entityToDense[entity] ?? -1; }
 
   private grow() {
@@ -156,30 +178,30 @@ export class ComponentStore<S extends ComponentSchema> {
     nD2E.set(this._denseToEntity);
     nRowV.set(this.rowVersion);
 
-    const nFields: any = {};
-    for (const key in this.schema) {
-      const { ctor } = this.schema[key]!;
-      const old = (this._fields as any)[key] as TypedArrayLike;
-      const neu = new (ctor as any)(nCap);
+    const nCols: any = {};
+    for (const f of this.meta.fields) {
+      const old = (this._columns as any)[f.key] as TypedArrayLike;
+      const neu = new (f.ctor as any)(nCap);
       (neu as any).set(old);
-      nFields[key] = neu;
+      nCols[f.key] = neu;
     }
 
     this._capacity = nCap;
     this._entityToDense = nE2D;
     this._denseToEntity = nD2E;
     this.rowVersion = nRowV;
-    this._fields = nFields;
+    this._columns = nCols;
   }
 
   /**
    * Add this component to an entity. Initializes all scalar fields to 0,
    * then applies any provided initial scalar values.
    */
-  add(entity: number, initialValues?: Partial<Record<keyof S, number>>): number {
+  add(entity: number, initialValues?: Partial<Record<string, number>>): number {
     const existing = this._entityToDense[entity] ?? -1;
     if (existing >= 0) {
-      if (initialValues) this.update(entity, initialValues);
+      if (initialValues) 
+        this.update(entity, initialValues);
       return existing;
     }
 
@@ -190,18 +212,20 @@ export class ComponentStore<S extends ComponentSchema> {
     this._denseToEntity[denseIndex] = entity;
 
     // zero-init all scalar fields
-    for (const fieldName in this.schema) {
-      const column = (this._fields as any)[fieldName] as TypedArrayLike;
+    for (const f of this.meta.fields) {
+      const column = (this._columns as any)[f.key] as TypedArrayLike;
       column[denseIndex] = 0 as any;
     }
 
     // apply provided initial scalar values
     if (initialValues) {
       for (const fieldName in initialValues) {
-        const value = initialValues[fieldName as keyof S];
-        if (value == null) continue;
-        const column = (this._fields as any)[fieldName] as TypedArrayLike;
-        column[denseIndex] = value as any;
+        const value = initialValues[fieldName];
+        if (value == null) 
+            continue;
+        const column = (this._columns as any)[fieldName] as TypedArrayLike;
+        if (column)
+            (column as any)[denseIndex] = value as any;
       }
     }
 
@@ -215,16 +239,18 @@ export class ComponentStore<S extends ComponentSchema> {
   /**
    * Update scalar fields for an existing component row.
    */
-  update(entity: number, patch: Partial<Record<keyof S, number>>): boolean {
+  update(entity: number, patch: Partial<Record<string, number>>): boolean {
     const denseIndex = this._entityToDense[entity] ?? -1;
-    if (denseIndex < 0) return false;
+    if (denseIndex < 0) 
+        return false;
 
     let updated = false;
     for (const fieldName in patch) {
-      const v = patch[fieldName as keyof S];
+      const v = patch[fieldName];
       if (v == null) continue;
-      const column = (this._fields as any)[fieldName] as TypedArrayLike;
-      column[denseIndex] = v as any;
+      const column = (this._columns as any)[fieldName] as TypedArrayLike;
+      if (!column) continue;
+      (column as any)[denseIndex] = v as any;
       updated = true;
     }
 
@@ -243,8 +269,8 @@ export class ComponentStore<S extends ComponentSchema> {
     const lastEntity = this._denseToEntity[last];
 
     // swap-remove per scalar column
-    for (const fieldName in this.schema) {
-      const col = (this._fields as any)[fieldName] as TypedArrayLike;
+    for (const f of this.meta.fields) {
+      const col = (this._columns as any)[f.key] as TypedArrayLike;
       col[denseI] = col[last]!;
     }
 
@@ -267,8 +293,8 @@ export class ComponentStore<S extends ComponentSchema> {
 // -----------------------------
 // World + Registry plumbing
 // -----------------------------
-export type StoreHandle<S extends ComponentSchema> = ComponentStore<S>;
-export interface ComponentDef<S extends ComponentSchema> { name: string; schema: S; }
+export type StoreHandle<M extends ComponentMeta = ComponentMeta> = ComponentStore<M>;
+export interface ComponentDef<M extends ComponentMeta = ComponentMeta> { meta: M; }
 
 export class World {
   readonly entities: EntityAllocator;
@@ -283,23 +309,24 @@ export class World {
     this.entityEpoch = this.entities.entityEpoch;
   }
 
-  register<S extends ComponentSchema>(def: ComponentDef<S>, initialCapacity = 256): StoreHandle<S> {
-    if (this._registry.has(def.name)) throw new Error(`Component '${def.name}' already registered`);
-    const store = new ComponentStore(def.name, def.schema, initialCapacity);
-    this._registry.set(def.name, def);
-    this._stores.set(def.name, store);
-    return store as StoreHandle<S>;
+  register<M extends ComponentMeta>(def: ComponentDef<M>, initialCapacity = 256): StoreHandle<M> {
+    const name = def.meta.name;
+    if (this._registry.has(name)) throw new Error(`Component '${name}' already registered`);
+    const store = new ComponentStore(def.meta, initialCapacity);
+    this._registry.set(name, def);
+    this._stores.set(name, store);
+    return store as StoreHandle<M>;
   }
 
-  store<S extends ComponentSchema>(name: string): StoreHandle<S> {
+  store<M extends ComponentMeta = ComponentMeta>(name: string): StoreHandle<M> {
     const store = this._stores.get(name);
     if (!store) throw new Error(`Unknown component store '${name}'`);
-    return store as StoreHandle<S>;
+    return store as StoreHandle<M>;
   }
 
   createEntity(): Entity { return this.entities.create(); }
 
-  // Option A (full teardown): remove from all stores, then free the entity.
+  // Full teardown: remove from all stores, then free the entity.
   destroyEntity(entity: Entity) {
     for (const store of this._stores.values()) {
       if ((store as ComponentStore<any>).has(entity)) (store as ComponentStore<any>).remove(entity);
@@ -331,7 +358,8 @@ export class World {
     const maxN = driver.size;
     const entities = new Int32Array(maxN);
     const rows: Record<string, Int32Array> = Object.create(null);
-    for (const name of requiredComponents) rows[name] = new Int32Array(maxN);
+    for (const name of requiredComponents) 
+        rows[name] = new Int32Array(maxN);
 
     const staged: number[] = new Array(compStores.length);
     let out = 0;
