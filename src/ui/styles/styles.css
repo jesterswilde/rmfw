@@ -112,3 +112,68 @@ body {
 @supports (font-smooth: antialiased) {
   body { font-smooth: antialiased; }
 }
+
+/* --- Panes layout core --- */
+.panes-root {
+  position: fixed;      /* fill the window */
+  inset: 0;
+  /* If you prefer to keep it flow-based, replace with: height: 100vh; width: 100vw; */
+}
+
+/* Every split container should expand to fill its parent */
+.split {
+  display: flex;
+  width: 100%;
+  height: 100%;
+}
+
+/* Orientation maps to your enum string values */
+.split.vertical   { flex-direction: row; }
+.split.horizontal { flex-direction: column; }
+
+/* Child wrappers get a fixed flex-basis (%) set from JS */
+.child {
+  flex: 0 0 auto;
+  min-width: 0;   /* critical for flex overflow */
+  min-height: 0;  /* prevents content from forcing growth */
+  position: relative;
+  display: flex;
+}
+
+/* The actual pane content fills its wrapper */
+.pane {
+  flex: 1 1 auto;
+  display: block;
+  width: 100%;
+  height: 100%;
+  background: var(--panel);
+  border: 1px solid #1e2432;
+  border-radius: 6px;
+  overflow: auto;
+}
+
+/* Simple label/button you create in createLeafPane() */
+.pane .label { padding: 8px; opacity: 0.8; }
+.pane .pane-btn {
+  position: absolute; top: 6px; right: 6px;
+  background: transparent; border: 0; color: var(--ink-muted); font-size: 16px;
+  cursor: pointer;
+}
+
+/* Separators for dragging */
+.separator.vertical {
+  width: 6px;
+  cursor: col-resize;
+  flex: 0 0 6px;
+  align-self: stretch;
+  background: transparent;
+}
+.separator.horizontal {
+  height: 6px;
+  cursor: row-resize;
+  flex: 0 0 6px;
+  background: transparent;
+}
+
+/* Optional: a visible hit area while dragging */
+.separator.dragging { background: rgba(255,255,255,0.06); }
