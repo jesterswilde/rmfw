@@ -3,8 +3,7 @@
   "version": "1.0.0",
   "main": "main.ts.js",
   "scripts": {
-    "copy-assets": "powershell -Command \"Get-ChildItem -Path 'src' -Exclude '*.ts' | Copy-Item -Destination 'dist' -Force\"",
-    "build": "npm run copy-assets && tsc",
+    "build": "node scripts/watch.js --build",
     "dev": "node scripts/watch.js",
     "watch": "node scripts/watch.js",
     "test": "jest --passWithNoTests",

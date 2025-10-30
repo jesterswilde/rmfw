@@ -1,9 +1,15 @@
 // scripts/watch.js
+/* eslint-disable no-console */
 const chokidar = require('chokidar');
 const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
 const crypto = require('crypto');
+
+// -------- CLI flags --------
+const args = new Set(process.argv.slice(2));
+const BUILD_ONCE = args.has('--build');
+const VERBOSE = !args.has('--quiet');
 
 // -------- config --------
 const SRC_DIR = 'src';
@@ -21,6 +27,7 @@ if (!fs.existsSync(CACHE_DIR)) {
 
 // ---------- helpers ----------
 function walkDir(dir, fileCallback, dirCallback) {
+  if (!fs.existsSync(dir)) return;
   const entries = fs.readdirSync(dir, { withFileTypes: true });
   for (const entry of entries) {
     const full = path.join(dir, entry.name);
@@ -39,20 +46,20 @@ function ensureDir(p) {
 }
 
 // ---------- TypeScript build ----------
-function compileTypeScript(_filePath, verbose = true) {
+function compileTypeScript(_filePath, verbose = VERBOSE) {
   try {
     if (verbose) console.log(`Compiling project (tsc)...`);
     // Tip: enable "incremental": true in tsconfig.json for faster rebuilds.
     execSync(`npx tsc --project tsconfig.json`, { stdio: 'inherit' });
     if (verbose) console.log(`Compilation finished`);
   } catch (error) {
-    console.error(`TypeScript compile error:`, error.message);
+    console.error(`TypeScript compile error:`, error.message || error);
   }
 }
 
 // Debounced compile scheduler (prevents multiple tsc runs in quick succession)
 let compileTimer = null;
-function scheduleCompile(verbose = true, delayMs = 100) {
+function scheduleCompile(verbose = VERBOSE, delayMs = 100) {
   if (compileTimer) clearTimeout(compileTimer);
   compileTimer = setTimeout(() => {
     compileTimer = null;
@@ -67,7 +74,7 @@ function loadManifest() {
 }
 function saveManifest(m) {
   try { fs.writeFileSync(MANIFEST_PATH, JSON.stringify(m, null, 2)); }
-  catch (e) { console.warn('Failed to save manifest:', e.message); }
+  catch (e) { if (VERBOSE) console.warn('Failed to save manifest:', e.message); }
 }
 const manifest = loadManifest();
 
@@ -107,7 +114,7 @@ function rememberCopy(srcPath, useHash = false) {
   manifest[key] = entry;
 }
 
-function maybeCopyFile(filePath, verbose = true) {
+function maybeCopyFile(filePath, verbose = VERBOSE) {
   try {
     // Set second arg to true to enable content hashing as a secondary check.
     if (!shouldCopy(filePath /*, true*/)) return;
@@ -120,12 +127,12 @@ function maybeCopyFile(filePath, verbose = true) {
     saveManifest(manifest);
     if (verbose) console.log(`Copied: ${relativePath}`);
   } catch (error) {
-    console.error(`Error copying ${filePath}:`, error.message);
+    console.error(`Error copying ${filePath}:`, error.message || error);
   }
 }
 
 // (kept for compatibility; not used by initial build any more)
-function copyFile(filePath, verbose = true) {
+function copyFile(filePath, verbose = VERBOSE) {
   try {
     const relativePath = path.relative(SRC_DIR, filePath);
     const destPath = path.join(DIST_DIR, relativePath);
@@ -134,12 +141,12 @@ function copyFile(filePath, verbose = true) {
     fs.copyFileSync(filePath, destPath);
     if (verbose) console.log(`Copied: ${relativePath}`);
   } catch (error) {
-    console.error(`Error copying ${filePath}:`, error.message);
+    console.error(`Error copying ${filePath}:`, error.message || error);
   }
 }
 
 // ---------- on-change handlers ----------
-function handleFileChange(filePath, verbose = true) {
+function handleFileChange(filePath, verbose = VERBOSE) {
   const ext = path.extname(filePath).toLowerCase();
   if (ext === '.ts' || ext === '.tsx') {
     // debounce compiles; a burst of TS changes compiles once
@@ -164,7 +171,7 @@ function removeCandidates(baseAbsNoExt) {
   for (const p of candidates) {
     if (fs.existsSync(p)) {
       fs.unlinkSync(p);
-      console.log(`Removed: ${p}`);
+      if (VERBOSE) console.log(`Removed: ${p}`);
     }
   }
 }
@@ -180,7 +187,7 @@ function handleFileRemoval(filePath) {
       const destPath = path.join(DIST_DIR, relativePath);
       if (fs.existsSync(destPath)) {
         fs.unlinkSync(destPath);
-        console.log(`Removed: ${destPath}`);
+        if (VERBOSE) console.log(`Removed: ${destPath}`);
       }
       // clean from manifest
       const key = relativePath.replace(/\\/g, '/');
@@ -190,7 +197,7 @@ function handleFileRemoval(filePath) {
       }
     }
   } catch (error) {
-    console.error(`Error removing outputs for ${filePath}:`, error.message);
+    console.error(`Error removing outputs for ${filePath}:`, error.message || error);
   }
 }
 
@@ -203,7 +210,7 @@ function handleDirRemoval(dirPath) {
       try {
         if (fs.readdirSync(distDir).length === 0) {
           fs.rmdirSync(distDir, { recursive: true });
-          console.log(`Removed empty directory: ${distDir}`);
+          if (VERBOSE) console.log(`Removed empty directory: ${distDir}`);
         }
       } catch {}
     }
@@ -232,7 +239,7 @@ function cleanupDistOrphans() {
     const removeFile = () => {
       try {
         fs.unlinkSync(distFile);
-        console.log(`Cleaned: ${distFile}`);
+        if (VERBOSE) console.log(`Cleaned: ${distFile}`);
       } catch (e) {
         console.warn(`Failed to remove ${distFile}: ${e.message}`);
       }
@@ -271,7 +278,7 @@ function cleanupDistOrphans() {
     try {
       if (fs.existsSync(d) && fs.readdirSync(d).length === 0) {
         fs.rmdirSync(d);
-        console.log(`Pruned empty dir: ${d}`);
+        if (VERBOSE) console.log(`Pruned empty dir: ${d}`);
       }
     } catch {}
   });
@@ -279,7 +286,7 @@ function cleanupDistOrphans() {
 
 // ---------- initial build ----------
 function initialBuild() {
-  console.log('Starting initial build...');
+  if (VERBOSE) console.log('Starting initial build...');
 
   // 1) Copy only non-TS files (skip unchanged via manifest)
   if (fs.existsSync(SRC_DIR)) {
@@ -297,32 +304,38 @@ function initialBuild() {
   // 3) Clean orphans
   cleanupDistOrphans();
 
-  console.log('Initial build complete.');
+  if (VERBOSE) console.log('Initial build complete.');
 }
 
-// ---------- watch ----------
-console.log('Starting file watcher...');
-console.log(`Watching: ${SRC_DIR}`);
-console.log(`Output: ${DIST_DIR}`);
-console.log('Press Ctrl+C to stop\n');
-
-initialBuild();
-
-const watcher = chokidar.watch(SRC_DIR, {
-  ignored: /(^|[\/\\])\../,
-  persistent: true,
-  ignoreInitial: true,
-});
-
-watcher
-  .on('add', (p) => handleFileChange(p, true))
-  .on('change', (p) => handleFileChange(p, true))
-  .on('unlink', handleFileRemoval)
-  .on('unlinkDir', handleDirRemoval)
-  .on('error', (error) => console.error('Watcher error:', error));
-
-process.on('SIGINT', () => {
-  console.log('\nShutting down watcher...');
-  watcher.close();
+// ---------- entrypoint ----------
+if (BUILD_ONCE) {
+  console.log('Running one-time build...');
+  initialBuild();
   process.exit(0);
-});
+} else {
+  console.log('Starting file watcher...');
+  console.log(`Watching: ${SRC_DIR}`);
+  console.log(`Output: ${DIST_DIR}`);
+  console.log('Press Ctrl+C to stop\n');
+
+  initialBuild();
+
+  const watcher = chokidar.watch(SRC_DIR, {
+    ignored: /(^|[\/\\])\../,
+    persistent: true,
+    ignoreInitial: true,
+  });
+
+  watcher
+    .on('add', (p) => handleFileChange(p, true))
+    .on('change', (p) => handleFileChange(p, true))
+    .on('unlink', handleFileRemoval)
+    .on('unlinkDir', handleDirRemoval)
+    .on('error', (error) => console.error('Watcher error:', error));
+
+  process.on('SIGINT', () => {
+    console.log('\nShutting down watcher...');
+    watcher.close();
+    process.exit(0);
+  });
+}

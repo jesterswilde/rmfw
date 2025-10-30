@@ -1,7 +1,7 @@
-import { EntityPool } from "../pools/entity.js";
+import { ShapePool } from "../pools/entity.js";
 import { Mat34Pool } from "../pools/matrix.js";
 import { NodeTree } from "../pools/nodeTree.js";
-import { EntityType, type Entity } from "../entityDef.js";
+import { ShapeType, type Shapes } from "../entityDef.js";
 import { Vector3, type EulerZYX } from "../utils/math.js";
 import { propagateTransforms } from "./propegatTransforms.js";
 
@@ -13,42 +13,42 @@ const toEulerZYX = (r: number[]): EulerZYX => ({
 });
 
 const needsXform = (t: number) =>
-  t === EntityType.Sphere ||
-  t === EntityType.Box ||
-  t === EntityType.Camera ||
-  t === EntityType.GateBox;
+  t === ShapeType.Sphere ||
+  t === ShapeType.Box ||
+  t === ShapeType.Camera ||
+  t === ShapeType.GateBox;
 
-function makeEntity(payload: any, xformId: number): Entity {
+function makeEntity(payload: any, xformId: number): Shapes {
   const t = (payload?.type ?? -1) as number;
 
-  if (t === EntityType.Sphere) {
+  if (t === ShapeType.Sphere) {
     return {
-      type: EntityType.Sphere,
+      type: ShapeType.Sphere,
       xformID: xformId,
       material: payload.material ?? undefined,
       radius: payload.radius ?? 0,
     };
   }
-  if (t === EntityType.Box) {
+  if (t === ShapeType.Box) {
     const b = payload.bounds ?? [0, 0, 0];
     return {
-      type: EntityType.Box,
+      type: ShapeType.Box,
       xformID: xformId,
       material: payload.material ?? undefined,
       bounds: new Vector3(b[0], b[1], b[2]),
     };
   }
-  if (t === EntityType.Camera) {
-    return { type: EntityType.Camera, xformID: xformId };
+  if (t === ShapeType.Camera) {
+    return { type: ShapeType.Camera, xformID: xformId };
   }
-  if (t === EntityType.GateBox) {
+  if (t === ShapeType.GateBox) {
     const b = payload.bounds ?? [0, 0, 0];
-    return { type: EntityType.GateBox, xformID: xformId, bounds: new Vector3(b[0], b[1], b[2]) };
+    return { type: ShapeType.GateBox, xformID: xformId, bounds: new Vector3(b[0], b[1], b[2]) };
   }
-  if (t === EntityType.ReduceUnion)      return { type: EntityType.ReduceUnion, children: payload.children ?? 0 };
-  if (t === EntityType.SimpleUnion)      return { type: EntityType.SimpleUnion };
-  if (t === EntityType.SimpleSubtract)   return { type: EntityType.SimpleSubtract };
-  if (t === EntityType.SimpleIntersection) return { type: EntityType.SimpleIntersection };
+  if (t === ShapeType.ReduceUnion)      return { type: ShapeType.ReduceUnion, children: payload.children ?? 0 };
+  if (t === ShapeType.SimpleUnion)      return { type: ShapeType.SimpleUnion };
+  if (t === ShapeType.SimpleSubtract)   return { type: ShapeType.SimpleSubtract };
+  if (t === ShapeType.SimpleIntersection) return { type: ShapeType.SimpleIntersection };
 
   throw new Error(`scene parse: unsupported payload type ${t}`);
 }
@@ -56,7 +56,7 @@ function makeEntity(payload: any, xformId: number): Entity {
 /** parses a scene object and inserts the data in to pool objects,
  * returns number of objects in the scene.
  */
-export function parseScene(obj: any, nodes: NodeTree, entities: EntityPool, mats: Mat34Pool): number {
+export function parseScene(obj: any, nodes: NodeTree, entities: ShapePool, mats: Mat34Pool): number {
   // validate
   if (!obj || obj.version !== 1) throw new Error("scene parse: bad or missing version");
   if (!obj.root) throw new Error("scene parse: missing root id");

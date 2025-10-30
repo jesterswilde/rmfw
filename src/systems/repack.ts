@@ -1,10 +1,10 @@
-import { EntityPool } from "../pools/entity.js";
+import { ShapePool } from "../pools/entity.js";
 import { Mat34Pool } from "../pools/matrix.js";
 import { NodeTree } from "../pools/nodeTree.js";
 
-export const repack = (nodes: NodeTree, entities: EntityPool, mats: Mat34Pool) => {
+export const repack = (nodes: NodeTree, entities: ShapePool, mats: Mat34Pool) => {
   const nl = NodeTree.Layout;
-  const el = EntityPool.Layout;
+  const el = ShapePool.Layout;
   const ml = Mat34Pool.Layout;
 
   const nBV = nodes.getBufferViews();

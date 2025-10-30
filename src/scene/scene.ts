@@ -1,4 +1,4 @@
-import { EntityPool } from '../pools/entity.js';
+import { ShapePool } from '../pools/entity.js';
 import { Mat34Pool } from '../pools/matrix.js';
 import { NodeTree } from '../pools/nodeTree.js';
 import { parseScene } from '../systems/loadScene.js';
@@ -17,7 +17,7 @@ export class Scene {
   private _sceneBG!: GPUBindGroup;
 
   private _nodes: NodeTree;
-  private _entities: EntityPool;
+  private _entities: ShapePool;
   private _matrices: Mat34Pool;
 
   private _nodesVersion = -1;
@@ -53,7 +53,7 @@ export class Scene {
 
     // Pools
     this._nodes = new NodeTree(256);
-    this._entities = new EntityPool(256);
+    this._entities = new ShapePool(256);
     this._matrices = new Mat34Pool(256);
     this._nodes.createGPUBuffer(device);
     this._entities.createGPUBuffer(device);

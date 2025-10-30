@@ -1,6 +1,6 @@
 import type { EulerZYX, Vector3 } from "./utils/math.js"
 
-export enum EntityType { 
+export enum ShapeType { 
     Camera = 0,
     Sphere =  1,
     Box = 2,
@@ -21,37 +21,37 @@ export interface ShapeBase{
     xformID: number
 }
 export interface Box extends ShapeBase { 
-    type: EntityType.Box,
+    type: ShapeType.Box,
     bounds: Vector3
 }
 export interface Sphere extends ShapeBase {
-    type: EntityType.Sphere,
+    type: ShapeType.Sphere,
     radius: number
 }
 export interface Camera { 
-    type: EntityType.Camera
+    type: ShapeType.Camera
     xformID: number
 }
 export interface ReduceUnion {
-    type: EntityType.ReduceUnion,
+    type: ShapeType.ReduceUnion,
     children: number
 }
 export interface SimpleUnion {
-    type: EntityType.SimpleUnion,
+    type: ShapeType.SimpleUnion,
 }
 export interface SimpleSubtract {
-    type: EntityType.SimpleSubtract,
+    type: ShapeType.SimpleSubtract,
 }
 export interface SimpleIntersection {
-    type: EntityType.SimpleIntersection,
+    type: ShapeType.SimpleIntersection,
 }
 export interface GateBox{
-    type: EntityType.GateBox,
+    type: ShapeType.GateBox,
     xformID: number
     bounds: Vector3
 }
 
-export type Entity = Camera
+export type Shapes = Camera
     | Sphere 
     | Box 
     | ReduceUnion 
