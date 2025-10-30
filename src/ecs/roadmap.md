@@ -29,23 +29,22 @@ Includes:
 - **Verification** Each phase will be accompanied by a test suite that proves functionality.
 ---
 
-## - [ ] Phase 1 — ECS Core (sparse-set) + Registry
+## - [x] Phase 1 — ECS Core (sparse-set) + Registry
 **Outcome:** Entities, component registry, SoA columns, queries.  
 
-- [ ] Build `World`
-  - [ ] Entity allocator (dense/sparse)
-  - [ ] Per-component SoA stores (`add/remove/get`)
-  - [ ] Query join over required components
-- [ ] Registry (single place)
-  - [ ] `Transform`
-  - [ ] `TransformNode`
-  - [ ] `RenderNode`
-  - [ ] `ShapeLeaf`
-  - [ ] `Operation`
-- [ ] Epochs
-  - [ ] `storeEpoch` per component type  
-  - [ ] optional `rowVersion`  
-  - [ ] `entityEpoch[e]` bumps on any mutation  
+- [x] Build `World`
+  - [x] Entity allocator (dense/sparse)
+  - [x] Per-component SoA stores (`add/remove/get`)
+  - [x] Query join over required components
+- [x] Registry (single place)
+  - [x] `Transform`
+  - [x] `TransformNode`
+  - [x] `RenderNode`
+  - [x] `ShapeLeaf`
+  - [x] `Operation`
+- [x] Epochs
+  - [x] `rowVersion`  
+  - [x] `entityEpoch[e]` bumps on any mutation  
 
 ---
 
@@ -61,66 +60,45 @@ Includes:
   - [ ] Maintain `renderOrder[]` (DFS)
   - [ ] Maintain `renderTreeEpoch`
   - [ ] Leaves → `ShapeLeaf`; internals → `Operation`
-- [ ] **propagateTransforms**
-  - [ ] Iterate `transformOrder[]`
-  - [ ] Compute `world = parent.world × local`
-  - [ ] Compute `invWorld = inverse(world)` (orthonormal fast path)
-  - [ ] Clear dirty flag; bump `Transform.storeEpoch`
 - [ ] **loadScene (rewrite)**
   - [ ] Parse JSON scene
   - [ ] Create entities
   - [ ] Add `Transform` + `TransformNode`
   - [ ] Add `RenderNode` (build RenderTree)
   - [ ] Add `ShapeLeaf` or `Operation`
-  - [ ] Run headless (no GPU yet)
-- [ ] **repack (CPU model only)**
-  - [ ] Build `PackedShape[]` in Render DFS order  
-  - [ ] Build `Transform3x4[]` from `invWorld`  
-  - [ ] Stable mapping `entity → transformSlot`
-  - [ ] Decide per-channel: stable vs DFS streamed  
 
 ---
 
 ## - [ ] Phase 3 — Generic GPU Bridge (Incremental & Pluggable)
 **Outcome:** Reusable, partial-update path for CPU→GPU.  
 
-- [ ] **Channel interface**
-  - [ ] `strideBytes`
-  - [ ] `indexing: 'stable'|'streamed'`
-  - [ ] `query(world)`
-  - [ ] `keyOf(row)`
-  - [ ] `isDirtySince(row, lastEpoch)`
-  - [ ] `pack(dstI32, dstF32, dstBase, row)`
-- [ ] **TransformsChannel (stable)**
-  - [ ] Query `[Transform]` in `transformOrder[]`
-  - [ ] Pack `invWorld` → `Transform3x4`
-  - [ ] Key = entity id
-  - [ ] Single-row partial updates
-- [ ] **RenderChannel (streamed)**
-  - [ ] Walk `renderOrder[]`
-  - [ ] Visit `Operation` + `ShapeLeaf`
-  - [ ] Pack → `PackedShape` ABI
-  - [ ] Keys = order slots
-  - [ ] Coalesced range uploads on reorder
-- [ ] **Bridge manager**
-  - [ ] Track `lastKeys[]`, `lastEpochs[]`
-  - [ ] Detect dirty/moved slots
-  - [ ] Coalesce adjacent ranges
-  - [ ] Perform `queue.writeBuffer` per range  
+  - [ ] Create a system for having AoS that will map to the GPU version.
+    - This should work with the next point:
+  - [ ] **propagateTransforms**
+    - [ ] Iterate `transformOrder[]`
+    - [ ] Compute `world = parent.world × local`
+    - [ ] Compute `invWorld = inverse(world)` (orthonormal fast path)
+    - [ ] Clear dirty flag; bump `Transform.storeEpoch`
+  - [ ] Allows for full GPU rewrite or writing only dirty ranges
 
 ---
+## - [ ] Phase 4 — Efficient physical storage and rebuilding methods
+**Outcome:** For hierarchical components (DFS) we should be able to do full and partial restructures. 
+- [ ] **repack system migration**
+- [ ] Should be able determine efficient ways to keep structures close to DFS order
+      It would be cool if there were ways to do this incrementally so it could take up only a few bits of time each frame.
+---
 
-## - [ ] Phase 4 — WGSL Hookup (End-to-End)
+## - [ ] Phase 5 — WGSL Hookup (End-to-End)
 **Outcome:** Bridge buffers replace legacy GPU data.  
 
 - [ ] Bind `TransformsChannel.gpuBuffer` → `@group(2) binding(2)`
 - [ ] Bind `RenderChannel.gpuBuffer` → `@group(2) binding(0)`
-- [ ] If WGSL still needs `nodes[]`, add temporary `RenderNodesChannel`
 - [ ] Smoke test sample scene renders correctly  
 
 ---
 
-## - [ ] Phase 5 — Archetypes (Storage Swap)
+## - [ ] Phase 6 — Archetypes (Storage Swap)
 **Outcome:** Replace sparse-set storage with chunked archetypes.  
 
 - [ ] Implement `Archetype` (signatures → chunks)
@@ -131,7 +109,7 @@ Includes:
 
 ---
 
-## - [ ] Phase 6 — Editor Wrappers (GameObject)
+## - [ ] Phase 7 — Editor Wrappers (GameObject)
 **Outcome:** Editor-friendly handles + epoch-based change tracking.  
 
 - [ ] `GameObject(world, entity)` API  
@@ -141,17 +119,15 @@ Includes:
 
 ---
 
-## - [ ] Phase 7 — Instancing / Copies (Optional)
+## - [ ] Phase 8 — Instancing / Copies 
 **Outcome:** Draw the same geometry multiple times.  
 
-- [ ] Add `Instance { sourceEntity, transformOverride? }`  
-- [ ] Render traversal resolves to `ShapeLeaf` of source  
-- [ ] Bridge packs accordingly  
+  - [ ] Allow for copy nodes.
+      Copy nodes indert a new position (in wgsl) into a render path to create instances of objects, perhaps multiple of them. 
 
 ---
 
 ### ✅ Operational Notes
-- `ShapeLeaf` shares its entity with its `Transform` → no xform field.  
 - `Operation` is a first-class component on internal RenderTree nodes.  
 - `RenderTree` DFS controls packing order for both shapes and ops.  
 - Partial uploads ensure small `writeBuffer` ranges per edit.  
