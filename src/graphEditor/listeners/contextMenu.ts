@@ -1,4 +1,4 @@
-import { type MenuItem, showContextMenu } from "../../ui/contextMenu.js";
+import { type MenuItem, showContextMenu } from "../../panes/contextMenu.js";
 import { render } from "../drawing.js";
 import {
   getCanvasPoint,

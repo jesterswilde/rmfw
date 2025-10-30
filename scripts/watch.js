@@ -1,13 +1,22 @@
+// scripts/watch.js
 const chokidar = require('chokidar');
 const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
+const crypto = require('crypto');
 
+// -------- config --------
 const SRC_DIR = 'src';
 const DIST_DIR = 'dist';
+const CACHE_DIR = '.cache';
+const MANIFEST_PATH = path.join(CACHE_DIR, 'copy-manifest.json');
 
+// Ensure base dirs exist
 if (!fs.existsSync(DIST_DIR)) {
   fs.mkdirSync(DIST_DIR, { recursive: true });
+}
+if (!fs.existsSync(CACHE_DIR)) {
+  fs.mkdirSync(CACHE_DIR, { recursive: true });
 }
 
 // ---------- helpers ----------
@@ -29,10 +38,11 @@ function ensureDir(p) {
   if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true });
 }
 
-// ---------- build / copy ----------
+// ---------- TypeScript build ----------
 function compileTypeScript(_filePath, verbose = true) {
   try {
     if (verbose) console.log(`Compiling project (tsc)...`);
+    // Tip: enable "incremental": true in tsconfig.json for faster rebuilds.
     execSync(`npx tsc --project tsconfig.json`, { stdio: 'inherit' });
     if (verbose) console.log(`Compilation finished`);
   } catch (error) {
@@ -40,6 +50,81 @@ function compileTypeScript(_filePath, verbose = true) {
   }
 }
 
+// Debounced compile scheduler (prevents multiple tsc runs in quick succession)
+let compileTimer = null;
+function scheduleCompile(verbose = true, delayMs = 100) {
+  if (compileTimer) clearTimeout(compileTimer);
+  compileTimer = setTimeout(() => {
+    compileTimer = null;
+    compileTypeScript(undefined, verbose);
+  }, delayMs);
+}
+
+// ---------- cached copy (non-TS) ----------
+function loadManifest() {
+  try { return JSON.parse(fs.readFileSync(MANIFEST_PATH, 'utf8')); }
+  catch { return {}; }
+}
+function saveManifest(m) {
+  try { fs.writeFileSync(MANIFEST_PATH, JSON.stringify(m, null, 2)); }
+  catch (e) { console.warn('Failed to save manifest:', e.message); }
+}
+const manifest = loadManifest();
+
+function fileKeyFromSrc(srcPath) {
+  // normalize to forward slashes to be cross-platform
+  return path.relative(SRC_DIR, srcPath).replace(/\\/g, '/');
+}
+function statSignature(stat) {
+  // fast & good-enough fingerprint based on mtime + size
+  return `${stat.mtimeMs}-${stat.size}`;
+}
+function contentHash(filePath) {
+  // used only for edge cases (disabled by default below)
+  const buf = fs.readFileSync(filePath);
+  return crypto.createHash('sha1').update(buf).digest('hex');
+}
+
+function shouldCopy(srcPath, useHash = false) {
+  const key = fileKeyFromSrc(srcPath);
+  const stat = fs.statSync(srcPath);
+  const sig = statSignature(stat);
+  const prev = manifest[key];
+  if (!prev) return true;
+  if (prev.sig !== sig) {
+    if (!useHash) return true;
+    const hash = contentHash(srcPath);
+    return hash !== prev.hash;
+  }
+  return false;
+}
+
+function rememberCopy(srcPath, useHash = false) {
+  const key = fileKeyFromSrc(srcPath);
+  const stat = fs.statSync(srcPath);
+  const entry = { sig: statSignature(stat) };
+  if (useHash) entry.hash = contentHash(srcPath);
+  manifest[key] = entry;
+}
+
+function maybeCopyFile(filePath, verbose = true) {
+  try {
+    // Set second arg to true to enable content hashing as a secondary check.
+    if (!shouldCopy(filePath /*, true*/)) return;
+    const relativePath = path.relative(SRC_DIR, filePath);
+    const destPath = path.join(DIST_DIR, relativePath);
+    ensureDir(destPath);
+    if (verbose) console.log(`Copying: ${filePath} -> ${destPath}`);
+    fs.copyFileSync(filePath, destPath);
+    rememberCopy(filePath /*, true*/);
+    saveManifest(manifest);
+    if (verbose) console.log(`Copied: ${relativePath}`);
+  } catch (error) {
+    console.error(`Error copying ${filePath}:`, error.message);
+  }
+}
+
+// (kept for compatibility; not used by initial build any more)
 function copyFile(filePath, verbose = true) {
   try {
     const relativePath = path.relative(SRC_DIR, filePath);
@@ -53,12 +138,14 @@ function copyFile(filePath, verbose = true) {
   }
 }
 
+// ---------- on-change handlers ----------
 function handleFileChange(filePath, verbose = true) {
   const ext = path.extname(filePath).toLowerCase();
   if (ext === '.ts' || ext === '.tsx') {
-    compileTypeScript(filePath, verbose);
+    // debounce compiles; a burst of TS changes compiles once
+    scheduleCompile(verbose);
   } else {
-    copyFile(filePath, verbose);
+    maybeCopyFile(filePath, verbose);
   }
 }
 
@@ -95,6 +182,12 @@ function handleFileRemoval(filePath) {
         fs.unlinkSync(destPath);
         console.log(`Removed: ${destPath}`);
       }
+      // clean from manifest
+      const key = relativePath.replace(/\\/g, '/');
+      if (manifest[key]) {
+        delete manifest[key];
+        saveManifest(manifest);
+      }
     }
   } catch (error) {
     console.error(`Error removing outputs for ${filePath}:`, error.message);
@@ -117,7 +210,7 @@ function handleDirRemoval(dirPath) {
   } catch {}
 }
 
-// ---------- NEW: initial cleanup ----------
+// ---------- NEW: initial cleanup / orphans ----------
 function srcHasTsSource(baseRelNoExt) {
   return (
     fs.existsSync(path.join(SRC_DIR, `${baseRelNoExt}.ts`)) ||
@@ -143,11 +236,16 @@ function cleanupDistOrphans() {
       } catch (e) {
         console.warn(`Failed to remove ${distFile}: ${e.message}`);
       }
+      // also reflect removal in manifest for mirrored files
+      const key = rel.replace(/\\/g, '/');
+      if (manifest[key]) {
+        delete manifest[key];
+        saveManifest(manifest);
+      }
     };
 
     if (isMap(distFile)) {
       // Handle .map for .js or .d.ts
-      // base may end with .js or .d.ts
       const withoutMap = distFile.slice(0, -'.map'.length);
       const baseRel = path.relative(DIST_DIR, withoutMap);
       const baseNoExt = baseRel.replace(/\.(js|mjs|cjs|d\.ts)$/i, '');
@@ -167,7 +265,6 @@ function cleanupDistOrphans() {
   });
 
   // Remove empty directories in dist (bottom-up)
-  // Walk dirs in reverse depth order by collecting first
   const dirs = [];
   walkDir(DIST_DIR, () => {}, (dir) => dirs.push(dir));
   dirs.sort((a, b) => b.length - a.length).forEach((d) => {
@@ -184,10 +281,20 @@ function cleanupDistOrphans() {
 function initialBuild() {
   console.log('Starting initial build...');
 
-  // 1) Build: copy non-TS & compile TS (deep)
-  walkDir(SRC_DIR, (filePath) => handleFileChange(filePath, false));
+  // 1) Copy only non-TS files (skip unchanged via manifest)
+  if (fs.existsSync(SRC_DIR)) {
+    walkDir(SRC_DIR, (filePath) => {
+      const ext = path.extname(filePath).toLowerCase();
+      if (ext !== '.ts' && ext !== '.tsx') {
+        maybeCopyFile(filePath, false);
+      }
+    });
+  }
 
-  // 2) Clean: remove dist orphans if sources went missing while watcher was off
+  // 2) Single project compile (uses tsc incremental cache if enabled in tsconfig)
+  compileTypeScript(undefined, false);
+
+  // 3) Clean orphans
   cleanupDistOrphans();
 
   console.log('Initial build complete.');
