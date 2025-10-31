@@ -3,8 +3,7 @@
 import { initWorld, TransformMeta, TransformNode } from "../../../src/ecs/registry.js";
 import { TransformTree } from "../../../src/ecs/trees.js";
 import { propagateTransforms, PropagateWorkspace } from "../../../src/ecs/systems/propagateTransforms.js";
-import { GpuBridge } from "../../../src/ecs/gpu/index.js";
-import { TransformsChannel } from "../../../src/ecs/gpu/channels.js";
+import { GpuBridge, TransformsChannel } from "../../../src/ecs/gpu/index.js";
 import { installWebGPUShims, MockQueue, makeMockDevice } from "../../utils/webgpu.mock.js";
 
 installWebGPUShims();

@@ -1,7 +1,8 @@
 // src/ecs/gpu/bridge.ts
+// GPU Bridge registry & sync loop (channels are now in separate files)
 
 import type { World } from "../core.js";
-import type { BaseChannel, BindLayoutSpec } from "./channels.js";
+import type { BaseChannel, BindLayoutSpec } from "./baseChannel.js";
 
 type Key = string;
 const keyOf = (g: number, b: number) => `${g}:${b}`;
