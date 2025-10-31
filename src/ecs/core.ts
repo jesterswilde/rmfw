@@ -356,6 +356,11 @@ export class ComponentStore<M extends ComponentMeta> {
       col[denseI] = col[last]!;
     }
 
+    // carry over rowVersion for the moved row (if any)
+    const movedRowVersion = this.rowVersion[last]!;
+    this.rowVersion[denseI] = movedRowVersion;
+    this.rowVersion[last] = 0;
+
     // remap dense<->entity for swapped row
     this._denseToEntity[denseI] = lastEntity!;
     this._entityToDense[lastEntity!] = denseI;
