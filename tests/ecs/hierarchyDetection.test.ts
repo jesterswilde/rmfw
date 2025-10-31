@@ -4,42 +4,49 @@ import { initWorld } from "../../src/ecs/registry";
 import { buildAllHierarchyTrees, isHierarchyStore } from "../../src/ecs/trees";
 
 describe("Hierarchy store detection", () => {
-  test("isHierarchyStore only accepts Int32 link fields", () => {
+  test("isHierarchyStore only accepts Int32 link fields (5-field shape)", () => {
     const goodMeta = defineMeta({
       name: "GoodNode",
       fields: [
-        { key: "parent", ctor: Int32Array, default: -1, link: true },
-        { key: "firstChild", ctor: Int32Array, default: -1, link: true },
+        { key: "parent",      ctor: Int32Array, default: -1, link: true },
+        { key: "firstChild",  ctor: Int32Array, default: -1, link: true },
+        { key: "lastChild",   ctor: Int32Array, default: -1, link: true },
         { key: "nextSibling", ctor: Int32Array, default: -1, link: true },
+        { key: "prevSibling", ctor: Int32Array, default: -1, link: true },
       ] as const,
     });
 
+    // Bad: missing a required link or wrong type
     const badMeta = defineMeta({
       name: "BadNode",
       fields: [
-        { key: "parent", ctor: Int32Array, default: -1 }, // missing link flag
-        { key: "firstChild", ctor: Float32Array, default: -1, link: true }, // wrong ctor
-        { key: "nextSibling", ctor: Int32Array, default: -1, link: true },
+        { key: "parent",      ctor: Int32Array, default: -1, link: true },
+        { key: "firstChild",  ctor: Int32Array, default: -1, link: true },
+        // missing lastChild
+        { key: "nextSibling", ctor: Float32Array, default: -1, link: true }, // wrong ctor
+        { key: "prevSibling", ctor: Int32Array, default: -1, link: true },
       ] as const,
     });
 
     const world = new World({ initialCapacity: 8 });
     const goodStore = world.register({ meta: goodMeta }, 8);
-    const badStore = world.register({ meta: badMeta }, 8);
+    const badStore  = world.register({ meta: badMeta  }, 8);
 
     expect(isHierarchyStore(goodStore)).toBe(true);
     expect(isHierarchyStore(badStore)).toBe(false);
   });
 
-  test("buildAllHierarchyTrees discovers all eligible stores", () => {
+  test("buildAllHierarchyTrees discovers all eligible 5-field stores", () => {
     const world = initWorld({ initialCapacity: 8 });
 
     const extraMeta = defineMeta({
       name: "AuxNode",
       fields: [
-        { key: "parent", ctor: Int32Array, default: -1, link: true },
-        { key: "firstChild", ctor: Int32Array, default: -1, link: true },
+        { key: "parent",      ctor: Int32Array, default: -1, link: true },
+        { key: "firstChild",  ctor: Int32Array, default: -1, link: true },
+        { key: "lastChild",   ctor: Int32Array, default: -1, link: true },
         { key: "nextSibling", ctor: Int32Array, default: -1, link: true },
+        { key: "prevSibling", ctor: Int32Array, default: -1, link: true },
       ] as const,
     });
 

@@ -32,7 +32,7 @@ describe("Epochs (Phase 1 semantics)", () => {
     T.update(e, { local_tx: 2 });
     expect(world.entityEpoch[e]).toBe(before); // unchanged in Phase 1
 
-    world.destroyEntity(e);
+    world.destroyEntitySafe(e);
     expect(world.entityEpoch[e]).toBe((before + 1) >>> 0);
   });
 });

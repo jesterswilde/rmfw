@@ -1,4 +1,3 @@
-/** @type {import('jest').Config} */
 module.exports = {
   preset: 'ts-jest',
   testEnvironment: 'node',
@@ -11,6 +10,7 @@ module.exports = {
   transform: {
     '^.+\\.ts$': ['ts-jest', {
       useESM: true,
+      tsconfig: 'tsconfig.jest.json',   // <— point at our jest tsconfig
     }],
   },
   moduleNameMapper: {

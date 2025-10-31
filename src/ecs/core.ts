@@ -49,13 +49,16 @@ type MutableColumnsOf<M extends ComponentMeta> = {
 };
 
 /** A Component definition: just the meta. */
-export type Def<M extends ComponentMeta = ComponentMeta> = Readonly<{ meta: M }>;
+export type Def<M extends ComponentMeta = ComponentMeta> = Readonly<{
+  meta: M;
+}>;
 
 /** Extract the meta from a Def. */
 export type MetaOf<D extends Def> = D["meta"];
 
 /** A typed store handle for a given meta. */
-export type StoreOf<M extends ComponentMeta = ComponentMeta> = ComponentStore<M>;
+export type StoreOf<M extends ComponentMeta = ComponentMeta> =
+  ComponentStore<M>;
 
 /** Factory to preserve literal name & field keys. */
 export function defineMeta<
@@ -90,8 +93,8 @@ export type StoreView<N extends string, K extends string> = {
 export interface QueryView {
   driver: string;
   count: number;
-  entities: Int32Array;                    // [count]
-  rows: Record<string, Int32Array>;        // rows[name][i] = dense row index in that store
+  entities: Int32Array; // [count]
+  rows: Record<string, Int32Array>; // rows[name][i] = dense row index in that store
 }
 
 // ------------------------------------------------------------
@@ -119,9 +122,15 @@ export class EntityAllocator {
     this.entityEpoch = new Uint32Array(cap);
   }
 
-  get capacity() { return this._sparse.length | 0; }
-  get size() { return this._dense.length | 0; }
-  get dense() { return this._dense; }
+  get capacity() {
+    return this._sparse.length | 0;
+  }
+  get size() {
+    return this._dense.length | 0;
+  }
+  get dense() {
+    return this._dense;
+  }
 
   private growToFit(id: number) {
     if (id < this._sparse.length) return;
@@ -149,7 +158,7 @@ export class EntityAllocator {
     return id;
   }
 
-  destroy(id: number) {
+  destroy(id: Entity) {
     const denseI = this._sparse[id] ?? -1;
     if (denseI < 0) return;
 
@@ -168,7 +177,9 @@ export class EntityAllocator {
     return id >= 0 && id < this._sparse.length && this._sparse[id]! >= 0;
   }
 
-  denseIndexOf(id: number) { return this._sparse[id] ?? -1; }
+  denseIndexOf(id: number) {
+    return this._sparse[id] ?? -1;
+  }
 }
 
 // ---------------------------------
@@ -211,22 +222,34 @@ export class ComponentStore<M extends ComponentMeta> {
   }
 
   // ---- accessors
-  get size() { return this._size; }
-  get capacity() { return this._capacity; }
-  get entityToDense() { return this._entityToDense; }
-  get denseToEntity() { return this._denseToEntity; }
+  get size() {
+    return this._size;
+  }
+  get capacity() {
+    return this._capacity;
+  }
+  get entityToDense() {
+    return this._entityToDense;
+  }
+  get denseToEntity() {
+    return this._denseToEntity;
+  }
 
   fields(): ColumnsOf<M> {
     return this._fields as ColumnsOf<M>;
   }
 
   has(entity: number) {
-    return entity >= 0 &&
-           entity < this._entityToDense.length &&
-           this._entityToDense[entity]! >= 0;
+    return (
+      entity >= 0 &&
+      entity < this._entityToDense.length &&
+      this._entityToDense[entity]! >= 0
+    );
   }
 
-  denseIndexOf(entity: number) { return this._entityToDense[entity] ?? -1; }
+  denseIndexOf(entity: number) {
+    return this._entityToDense[entity] ?? -1;
+  }
 
   private grow() {
     const nCap = GROW(this._capacity);
@@ -258,7 +281,10 @@ export class ComponentStore<M extends ComponentMeta> {
    * Add this component to an entity. Initializes all scalar fields to their meta default (or 0),
    * then applies any provided initial scalar values.
    */
-  add(entity: number, initialValues?: Partial<Record<KeysOf<M>, number>>): number {
+  add(
+    entity: number,
+    initialValues?: Partial<Record<KeysOf<M>, number>>
+  ): number {
     const existing = this._entityToDense[entity] ?? -1;
     if (existing >= 0) {
       if (initialValues) this.update(entity, initialValues);
@@ -349,11 +375,18 @@ export class ComponentStore<M extends ComponentMeta> {
 // -----------------------------
 // World + Registry plumbing
 // -----------------------------
+export type HierarchyLike = {
+  /** Detach subtree root 'entity' (becomes root); no-ops if entity isn't present. */
+  remove(entity: number): void;
+  /** Name for debugging (e.g., "TransformNode", "RenderNode") */
+  componentName?: string;
+};
 
 export class World {
   readonly entities: EntityAllocator;
   private _stores = new Map<string, ComponentStore<any>>();
   private _registry = new Map<string, Def<any>>();
+  private _hierarchies = new Map<string, HierarchyLike>();
 
   readonly entityEpoch: Uint32Array;
 
@@ -366,8 +399,11 @@ export class World {
   /** Register a component definition (meta). */
   register<D extends Def>(def: D, initialCapacity = 256): StoreOf<MetaOf<D>> {
     const meta = def.meta;
-    if (this._registry.has(meta.name)) throw new Error(`Component '${meta.name}' already registered`);
-    const store = new ComponentStore(meta, initialCapacity) as StoreOf<MetaOf<D>>;
+    if (this._registry.has(meta.name))
+      throw new Error(`Component '${meta.name}' already registered`);
+    const store = new ComponentStore(meta, initialCapacity) as StoreOf<
+      MetaOf<D>
+    >;
     this._registry.set(meta.name, def);
     this._stores.set(meta.name, store);
     return store;
@@ -381,21 +417,34 @@ export class World {
   }
 
   /** Strongly-typed lookup by meta object, returns slim StoreView for clean hovers. */
-  storeOf<
-    const N extends string,
-    const F extends readonly FieldMeta<string>[]
-  >(meta: Readonly<{ name: N; fields: F }>): StoreView<N, F[number]["key"]> {
-    const s = this.store(meta.name) as ComponentStore<Readonly<{ name: N; fields: F }>>;
+  storeOf<const N extends string, const F extends readonly FieldMeta<string>[]>(
+    meta: Readonly<{ name: N; fields: F }>
+  ): StoreView<N, F[number]["key"]> {
+    const s = this.store(meta.name) as ComponentStore<
+      Readonly<{ name: N; fields: F }>
+    >;
     // Narrow public surface to reduce hover noise:
     return {
       name: s.name,
       meta: s.meta,
-      get size() { return s.size; },
-      get capacity() { return s.capacity; },
-      get entityToDense() { return s.entityToDense; },
-      get denseToEntity() { return s.denseToEntity; },
-      get rowVersion() { return s.rowVersion; },
-      get storeEpoch() { return s.storeEpoch; },
+      get size() {
+        return s.size;
+      },
+      get capacity() {
+        return s.capacity;
+      },
+      get entityToDense() {
+        return s.entityToDense;
+      },
+      get denseToEntity() {
+        return s.denseToEntity;
+      },
+      get rowVersion() {
+        return s.rowVersion;
+      },
+      get storeEpoch() {
+        return s.storeEpoch;
+      },
       fields: () => s.fields() as any,
       has: (e) => s.has(e),
       denseIndexOf: (e) => s.denseIndexOf(e),
@@ -405,17 +454,53 @@ export class World {
     };
   }
 
-  createEntity(): Entity { return this.entities.create(); }
+  createEntity(): Entity {
+    return this.entities.create();
+  }
 
   // Full teardown: remove from all stores, then free the entity.
   destroyEntity(entity: Entity) {
     for (const store of this._stores.values()) {
-      if ((store as ComponentStore<any>).has(entity)) (store as ComponentStore<any>).remove(entity);
+      if ((store as ComponentStore<any>).has(entity))
+        (store as ComponentStore<any>).remove(entity);
     }
     this.entities.destroy(entity);
   }
+  /** Register a hierarchy view by component name (idempotent). */
+  registerHierarchy(name: string, h: HierarchyLike) {
+    this._hierarchies.set(name, h);
+  }
+  /** Unregister a hierarchy view by component name (no-op if missing). */
+  unregisterHierarchy(name: string) {
+    this._hierarchies.delete(name);
+  }
+  /** Iterate registered hierarchies (internal/testing). */
+  forEachHierarchy(cb: (name: string, h: HierarchyLike) => void) {
+    for (const [n, h] of this._hierarchies) cb(n, h);
+  }
 
-  // 🔎 Optional internal helpers (used by dynamic tree detection; safe no-ops if unused)
+  /**
+   * Safely destroy an entity:
+   * - If removeFromTrees is true (default): detach from all registered hierarchies first.
+   * - Then remove from all component stores and free the entity id.
+   * If you pass false, it will skip the hierarchy detaches. Only do this if you know the entity
+   * is not part of a registered hierarchy (or you have already detached it).
+   */
+  destroyEntitySafe(entity: Entity, removeFromTrees = true) {
+    // 1) Optionally detach from hierarchies
+    if (removeFromTrees) {
+      for (const h of this._hierarchies.values()) {
+        try {
+          h.remove(entity);
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+    // 2) Remove from all component stores (existing logic)
+    this.destroyEntity(entity);
+  }
+
   /** @internal */
   __listStoreNames?(): string[] {
     return Array.from(this._stores.keys());
@@ -428,7 +513,7 @@ export class World {
   // -----------------------------
   // queryView: single-pass materialized join across stores
   // -----------------------------
-  queryView(...requiredComponents: string[]): QueryView {
+  queryView(...requiredComponents: string[]): any {
     if (requiredComponents.length === 0) {
       return { driver: "", count: 0, entities: new Int32Array(0), rows: {} };
     }
@@ -439,14 +524,23 @@ export class World {
     if (!driver) throw new Error(`Unknown component '${driverName}'`);
     for (let i = 1; i < requiredComponents.length; i++) {
       const compStore = this._stores.get(requiredComponents[i]!);
-      if (!compStore) throw new Error(`Unknown component '${requiredComponents[i]}'`);
-      if (compStore.size < driver!.size) { driver = compStore; driverName = requiredComponents[i]!; }
+      if (!compStore)
+        throw new Error(`Unknown component '${requiredComponents[i]}'`);
+      if (compStore.size < driver!.size) {
+        driver = compStore;
+        driverName = requiredComponents[i]!;
+      }
     }
     if (!driver || driver.size === 0) {
-      return { driver: driverName, count: 0, entities: new Int32Array(0), rows: {} };
+      return {
+        driver: driverName,
+        count: 0,
+        entities: new Int32Array(0),
+        rows: {},
+      };
     }
 
-    const compStores = requiredComponents.map(n => this._stores.get(n)!);
+    const compStores = requiredComponents.map((n) => this._stores.get(n)!);
 
     const maxN = driver.size;
     const entities = new Int32Array(maxN);
@@ -463,7 +557,10 @@ export class World {
       for (let cI = 0; cI < compStores.length; cI++) {
         const comp = compStores[cI]!;
         const rowIndex = comp.denseIndexOf(entity!);
-        if (rowIndex < 0) { ok = false; break; }
+        if (rowIndex < 0) {
+          ok = false;
+          break;
+        }
         staged[cI] = rowIndex;
       }
       if (!ok) continue;
@@ -478,8 +575,14 @@ export class World {
 
     const entitiesView = entities.subarray(0, out);
     const rowsView: Record<string, Int32Array> = Object.create(null);
-    for (const name of requiredComponents) rowsView[name] = rows[name]!.subarray(0, out);
+    for (const name of requiredComponents)
+      rowsView[name] = rows[name]!.subarray(0, out);
 
-    return { driver: driverName, count: out, entities: entitiesView, rows: rowsView };
+    return {
+      driver: driverName,
+      count: out,
+      entities: entitiesView,
+      rows: rowsView,
+    };
   }
 }

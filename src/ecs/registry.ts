@@ -68,7 +68,9 @@ export const TransformNodeMeta = defineMeta({
   fields: [
     { key: "parent",      ctor: Int32Array, default: NONE, link: true }, // -1 if root
     { key: "firstChild",  ctor: Int32Array, default: NONE, link: true }, // head of child list
-    { key: "nextSibling", ctor: Int32Array, default: NONE, link: true }, // sibling
+    { key: "lastChild",   ctor: Int32Array, default: NONE, link: true }, // tail of child list (O(1) append)
+    { key: "nextSibling", ctor: Int32Array, default: NONE, link: true }, // next sibling
+    { key: "prevSibling", ctor: Int32Array, default: NONE, link: true }, // prev sibling (O(1) detach)
   ] as const,
 });
 
@@ -77,7 +79,9 @@ export const RenderNodeMeta = defineMeta({
   fields: [
     { key: "parent",      ctor: Int32Array, default: NONE, link: true },
     { key: "firstChild",  ctor: Int32Array, default: NONE, link: true },
+    { key: "lastChild",   ctor: Int32Array, default: NONE, link: true }, // tail of child list (O(1) append)
     { key: "nextSibling", ctor: Int32Array, default: NONE, link: true },
+    { key: "prevSibling", ctor: Int32Array, default: NONE, link: true },
   ] as const,
 });
 

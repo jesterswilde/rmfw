@@ -84,7 +84,7 @@
 - Maintain continuity: recall rmfw’s architecture, conventions, and tone.  
 - When unsure, prefer **safe, readable correctness** over micro-optimizations.  
 - Avoid speculative design; align with established rmfw patterns first.
-- When writing or editing tests, if the API of a class or function changed, then the test should change to reflect this. We are early on so we don't need to maintain any API or backwards compatibility. 
+- When writing or editing tests, if the API of a class or function changed, then the test should change to reflect this. If the teset is accurately describing what the current code /should/ do, we change the code. We are early on so we don't need to maintain any API or backwards compatibility. 
 
 ---
 

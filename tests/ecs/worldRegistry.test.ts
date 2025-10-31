@@ -37,7 +37,7 @@ describe("World + Registry", () => {
     tn.add(e, { parent: -1, firstChild: -1, nextSibling: -1 });
 
     const epochBefore = world.entityEpoch[e]!;
-    world.destroyEntity(e);
+    world.destroyEntitySafe(e);
 
     expect(t.has(e)).toBe(false);
     expect(tn.has(e)).toBe(false);

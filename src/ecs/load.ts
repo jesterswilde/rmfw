@@ -1,13 +1,8 @@
+// src/ecs/load.ts
 // rmfw — Scene Loader (JSON v1, fully dynamic & meta-driven)
-// • No hardcoded component lists; we ask world.store(block.name).
-// • For each present row, write either provided column value or meta.default.
-// • After hydration, auto-detect hierarchy stores and rebuild DFS orders.
-// • Accepts optional root hints. For backward compat, supports both:
-//      roots: Record<string, number[]>  (keyed by component name)
-//   or  { transform: number[], render: number[] }  (legacy shape)
 
-import { World } from "../ecs/core";
-import { buildAllHierarchyTrees } from "./trees";
+import { World } from "../ecs/core.js";
+import { buildAllHierarchyTrees } from "./trees.js";
 
 const NONE = -1;
 
@@ -38,42 +33,79 @@ function applyComponentBlock(world: World, block: RmfwComponentBlockV1) {
     return; // unknown component; skip
   }
 
-  const meta = store.meta as { fields: { key: string; default?: number; link?: boolean }[]; name: string };
-  const cols = store.fields() as Record<string, Float32Array | Int32Array | Uint32Array>;
+  const meta = store.meta as {
+    fields: { key: string; default?: number; link?: boolean }[];
+    name: string;
+  };
 
-  // 1) Add components for all present entities (bounded by entityCount created by the caller)
-  for (let i = 0; i < N; i++) if (block.present[i] === 1) { store.add(i); }
+  // ---- 1) Ensure rows exist for all present entities.
+  // (Do this *before* retrieving column views so any growth happens first.)
+  for (let i = 0; i < N; i++) {
+    if (block.present[i] === 1) {
+      store.add(i);
+    }
+  }
 
-  // 2) Map provided columns by key (if any)
+  // ---- Re-fetch columns *after* potential growth so we write into live arrays.
+  const cols = store.fields() as Record<
+    string,
+    Float32Array | Int32Array | Uint32Array
+  >;
+
+  // ---- 2) Map provided columns by key (if any).
   const provided = new Map<string, number[]>();
   const order = block.fieldOrder ?? [];
   const columns = block.columns ?? [];
-  for (let i = 0; i < order.length; i++) provided.set(order[i]!, columns[i]!);
+  for (let i = 0; i < order.length; i++) {
+    // tolerate malformed payloads (excess keys/columns)
+    const key = order[i]!;
+    const arr = columns[i];
+    if (arr) provided.set(key, arr);
+  }
 
-  // 3) Hydrate with a single rolling counter over 'present' entities
-  let row = 0;
-  for (let e = 0; e < N; e++) if (block.present[e] === 1) {
+  // ---- 3) Hydrate rows in a single pass over 'present' entities.
+  let row = 0; // index into each provided column (counts only present==1)
+  for (let e = 0; e < N; e++) {
+    if (block.present[e] !== 1) continue;
+
     const dense = store.denseIndexOf(e);
+    // Defensive check: if something went wrong with add/lookup, skip this entity
+    if (dense < 0) {
+      row++;
+      continue;
+    }
+
     for (const f of meta.fields) {
       const column = cols[f.key] as any;
-      if (!column) continue;
+      if (!column) continue; // tolerate missing columns
+
       const arr = provided.get(f.key);
-      const value = arr ? arr[row]! : (f.default ?? 0);
+      const value = arr !== undefined ? arr[row]! : (f.default ?? 0);
+
+      // Links are integer-valued; other fields may be float.
       column[dense] = f.link ? (value | 0) : value;
     }
+
     row++;
   }
 }
 
 /** Normalize root hints: accept a name->array map, or {transform, render} legacy. */
-function normalizeRoots(roots: RmfwSceneV1["roots"] | undefined): Map<string, number[]> {
+function normalizeRoots(
+  roots: RmfwSceneV1["roots"] | undefined
+): Map<string, number[]> {
   const out = new Map<string, number[]>();
   if (!roots) return out;
 
   // Legacy shape support
-  if ("transform" in roots || "render" in roots) {
-    if ((roots as any).transform) out.set("TransformNode", (roots as any).transform!);
-    if ((roots as any).render)    out.set("RenderNode",    (roots as any).render!);
+  if (
+    typeof roots === "object" &&
+    (Object.prototype.hasOwnProperty.call(roots, "transform") ||
+      Object.prototype.hasOwnProperty.call(roots, "render"))
+  ) {
+    const legacy = roots as any;
+    if (legacy.transform) out.set("TransformNode", legacy.transform as number[]);
+    if (legacy.render) out.set("RenderNode", legacy.render as number[]);
     return out;
   }
 
@@ -92,7 +124,7 @@ export function loadScene(world: World, scene: RmfwSceneV1) {
   // 1) Create N dense entities [0..N-1]
   for (let i = 0; i < N; i++) world.createEntity();
 
-  // 2) Apply all components dynamically
+  // 2) Apply all components dynamically (meta-driven)
   for (const block of scene.components) applyComponentBlock(world, block);
 
   // 3) Auto-detect and rebuild DFS orders for all hierarchy stores.
