@@ -9,7 +9,8 @@
     "test": "jest --passWithNoTests",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
-    "bundle": "node scripts/bundle.mjs"
+    "bundle": "node scripts/bundle.mjs",
+    "makeWorld": "node --loader ts-node/esm scripts/sceneBuilder.ts"
   },
   "author": "",
   "license": "ISC",
