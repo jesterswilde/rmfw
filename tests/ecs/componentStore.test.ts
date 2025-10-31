@@ -45,7 +45,10 @@ describe("ComponentStore (scalar SoA)", () => {
     const a = 0, b = 1, c = 2; // small ids within capacity
     store.add(a, { i: 100 });
     store.add(b, { i: 200 });
-    store.add(c, { i: 300 });
+    const rowC = store.add(c, { i: 300 });
+    store.update(c, { x: 9.5 });
+    const rvCBefore = store.rowVersion[rowC];
+    const epochBefore = store.storeEpoch;
     // remove middle dense row (entity b)
     const ok = store.remove(b);
     expect(ok).toBe(true);
@@ -55,6 +58,34 @@ describe("ComponentStore (scalar SoA)", () => {
     // last (c) should be moved into b's old dense slot (1)
     expect(store.entityToDense[c]).toBe(1);
     expect(store.denseToEntity[1]).toBe(c);
+    expect(store.rowVersion[store.denseIndexOf(c)]).toBe(rvCBefore);
+    expect(store.rowVersion[store.size]).toBe(0);
+    expect(store.storeEpoch).toBe(epochBefore + 1);
+  });
+
+  test("remove returns false for missing entity and leaves storeEpoch unchanged", () => {
+    const store = new ComponentStore(DummyMeta, 8);
+    const epochBefore = store.storeEpoch;
+    const removed = store.remove(123);
+    expect(removed).toBe(false);
+    expect(store.storeEpoch).toBe(epochBefore);
+  });
+
+  test("adding an existing entity acts as update (no duplicate row)", () => {
+    const store = new ComponentStore(DummyMeta, 8);
+    const e = 5;
+    const row = store.add(e, { i: 1, x: 1.5 });
+    const epochAfterAdd = store.storeEpoch;
+    const rowVersionAfterAdd = store.rowVersion[row];
+
+    const sameRow = store.add(e, { x: 3.25 });
+    expect(sameRow).toBe(row);
+    expect(store.size).toBe(1);
+    expect(store.storeEpoch).toBe(epochAfterAdd + 1);
+    expect(store.rowVersion[row]).toBe(rowVersionAfterAdd + 1);
+    const { i, x } = store.fields() as any;
+    expect(i[row]).toBe(1);
+    expect(x[row]).toBeCloseTo(3.25);
   });
 
   test("grow doubles capacity and preserves data", () => {
