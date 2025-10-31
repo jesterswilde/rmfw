@@ -1,6 +1,6 @@
 # What changes with “inverse baked per shape”
 
-- **Transforms no longer define render hierarchy.** We’ll still keep `Transform` for authoring/local editing, but **render-time matrices are pre-baked per shape**.
+- **Transforms no longer define render hierarchy.** We’ll still keep `Transform` for authoring/local editing, but render-time buffers now reference baked inverse rows produced directly from the `Transform` component.
     
 - **Render hierarchy moves to Ops only.** Ops hold children (shapes and/or ops). A **root MIN op** will implicitly include “loose” shapes.
     
@@ -14,16 +14,10 @@
 - `TransformNode` (kept only for editor/scene graphs; **not** required by renderer)
     
 - `RenderNode` (ops-only tree: parent/firstChild/nextSibling + flags)
-    
+
 - `Operation` (opType, gate/meta fields, future AABB/BV data)
-    
+
 - `ShapeLeaf` (shapeType + params)
-    
-- **New:** `BakedXform` (baked 3×4 world and/or inverse for each shape leaf)
-    
-    - Populated by `propagateTransforms` (authoring) + **bake pass** per shape
-        
-    - Stored SoA but packed AoS alongside each shape row
         
 
 > Rationale: we keep Transform authoring ergonomics and determinism, but sever GPU-time dependency chains.
@@ -36,17 +30,7 @@
         
     - Sets a **dirty flag** per affected entity (including descendants when needed).
         
-2. **bakeShapeXforms**
-    
-    - For every `ShapeLeaf` with dirty `Transform` (or ancestor change), write/refresh its `BakedXform` row:
-        
-        - If authoring tree exists: use resolved `world` of that entity.
-            
-        - If shapes are authoring-roots: use their local as world.
-            
-    - Computes **inverse (rigid fast path)** and clears dirty.
-        
-3. **renderTopologyMaintain** (ops tree)
+2. **renderTopologyMaintain** (ops tree)
     
     - Maintains `renderOrder[]` (DFS over `RenderNode` only).
         
@@ -55,7 +39,7 @@
     - Assigns **implicit membership** of orphan shapes to the **root MIN op** (internal Handle `ROOT_OP`).
         
 
-> Note: **No repack** just because transforms changed; only `BakedXform` rows update. Repack happens on **ops topology** changes (Phase 4 will make this incremental).
+> Note: transforms update in-place inside the existing `TransformsChannel`; render rows only point at transform indices. Repack happens on **ops topology** changes (Phase 4 will make this incremental).
 
 # GPU Bridge v2 (shader-agnostic, modular)
 
@@ -63,32 +47,20 @@ We make the bridge **channelized** and **pipeline-agnostic**. Each compute/rende
 
 ## Channels (first wave)
 
-- **ShapesChannel** (primary)  
-    **Row = { header, params, bakedXform }**
-    
-    - `header: vec4<i32>` — `{ shapeType, material, flags, padding_or_childCount }`
-        
-    - `params: vec4<f32> * N` — sphere r, box dims, etc. (meta-driven)
-        
-    - `bakedXform: Transform3x4Inv` (or both W and Inv per pipeline spec)
-        
-    - **Dirty:** changes in `ShapeLeaf` or `BakedXform` bump per-row version → partial writes.
-        
-- **OpsChannel**  
-    Row holds **op type + child range** (CSR-like):
-    
-    - `ops: array<OpRow>` with `{ opType:i32, firstChild:i32, childCount:i32, flags:u32 }`
-        
-    - `opChildren: array<i32>` — flat child indices referencing **ShapesChannel rows or other Ops**
-        
-    - **Dirty:** topology or op params → may require range update; if child array grows/shrinks, we rewrite the **child tail** only.
-        
-- **(Optional, later) BV/BoundsChannel**
-    
-    - Axis-aligned bounds per node (shape/op) for culling; can be produced incrementally (narrow updates).
-        
+- **TransformsChannel**
+    - Packs inverse-world 3×4 rows from the `Transform` store following `TransformTree.order`.
+    - **Dirty:** driven by `Transform.rowVersion` (bumped by `propagateTransforms`).
 
-> We drop the dedicated `TransformsChannel` for this shader. If another pipeline wants separated transforms, it can add a **TransformChannel module** (see “multi-pipeline modularity”).
+- **RenderChannel**
+    - Row = `{ kind:i32, subtype:i32, parentRow:i32, transformRow:i32, params: f32[6] }`.
+    - Rows follow `RenderTree.order` with an implicit root MIN row at index 0. Rootless nodes remap their parent to this root.
+    - Shapes populate the `params` payload and reference their baked inverse row via `transformRow`.
+    - Ops zero the `params` payload.
+    - **Dirty:** driven by `ShapeLeaf` / `Operation` row versions and parent/transform pointer changes.
+
+- **(Optional, later) BV/BoundsChannel**
+
+    - Axis-aligned bounds per node (shape/op) for culling; can be produced incrementally (narrow updates).
 
 ## Bridge interfaces
 
@@ -128,24 +100,22 @@ We make the bridge **channelized** and **pipeline-agnostic**. Each compute/rende
 
 # Packing & ordering
 
-- **ShapesChannel order**: stable, deterministic — **first loose shapes**, then DFS over ops with children (or vice versa; we’ll pick and freeze a policy).
-    
-    - Each shape row gets **its baked inverse** inline; **no pointer chasing** in WGSL.
-        
-- **OpsChannel order**: DFS over op tree. Children lists refer to **ShapesChannel indices** (and nested op indices). Root MIN op’s child list includes all loose shapes.
-    
+- **TransformsChannel order**: mirrors `TransformTree.order`. Rows are contiguous inverse matrices referenced by render rows.
 
-> On ops topology change, we **rebuild only OpsChannel** (rows + child buffer). ShapesChannel indices remain stable unless we explicitly choose to keep them packed tightly (tuneable).
+- **RenderChannel order**: DFS over the render tree with an implicit root MIN row injected at index 0. Each entity row records its parent’s row index (or `0` if it was rootless) and, for shapes, the transform row index.
+
+
+> On render topology change, we rebuild the RenderChannel AoS. Transform updates only touch their corresponding rows; no repack is required.
 
 # Dirty & epochs (recap with the new model)
 
 - **Per-store:** `Transform.storeEpoch`, `ShapeLeaf.storeEpoch`, `Operation.storeEpoch`.
     
-- **Per-row:** `rowVersion[]` mirrors in channels; **BakedXform.rowVersion`** updates when transform-derived data changes.
+- **Per-row:** `rowVersion[]` mirrors in channels; `Transform.rowVersion` drives the TransformsChannel, while RenderChannel mirrors the latest `ShapeLeaf` / `Operation` row versions per entity.
     
-- **Topology:** `renderTreeEpoch`. If changed → rebuild **OpsChannel** (not necessarily ShapesChannel).
+- **Topology:** `renderTreeEpoch`. If changed → rebuild the RenderChannel packing.
     
-- **No tree-driven repack for shape transforms**; those are mere **row updates** within ShapesChannel.
+- **No tree-driven repack for shape transforms**; those are mere **row updates** within TransformsChannel.
     
 
 # Incremental topology (Phase 4 direction)
@@ -161,11 +131,11 @@ We’ll prep data structures now:
 
 # Testing targets (Phase 3 scope)
 
-- **Bake vs authoring:** mutate a parent transform, confirm only affected shapes’ `BakedXform` rows upload.
+- **Bake vs authoring:** mutate a parent transform, confirm only affected rows in the TransformsChannel upload and that the RenderChannel keeps stable indices.
     
 - **Ops edits:** add/remove a child in the op tree → only ops child buffer and touched op row(s) update.
     
-- **Shader swap readiness:** provide a **mock pipeline spec** with different `bakedXform` layout (e.g., world-only) and confirm channel re-packs without ECS changes.
+- **Shader swap readiness:** provide a **mock pipeline spec** with different transform packing (e.g., world-only) and confirm channels re-pack without ECS changes.
     
 - **Root MIN behavior:** shapes not attached to any op appear exactly once via root’s child list.
     
@@ -173,31 +143,27 @@ We’ll prep data structures now:
 # Integration with current `Scene`
 
 - `@group(2)` now binds:
-    
-    - `binding(0)` → `ShapesChannel.gpuBuffer`
-        
-    - `binding(1)` → `OpsChannel.opsBuffer`
-        
-    - `binding(2)` → `OpsChannel.childBuffer`
-        
-    - (Later) `binding(3)` → `BoundsChannel.gpuBuffer`
+
+    - `binding(0)` → `RenderChannel.gpuBuffer`
+
+    - `binding(1)` → `TransformsChannel.gpuBuffer`
+
+    - (Later) `binding(2)` → `BoundsChannel.gpuBuffer`
         
 - Scene’s update:
-    
+
     1. `propagateTransforms()` (authoring)
-        
-    2. `bakeShapeXforms()` (populate/refresh `BakedXform`)
-        
-    3. `bridge.syncAll()` (Shapes first, Ops next)
-        
-    4. re-create group(2) **only if** any GPUBuffer identity changed (grow).
+
+    2. `bridge.syncAll()` (Transforms first, then Render)
+
+    3. re-create group(2) **only if** any GPUBuffer identity changed (grow).
         
 
 # Modularity for “other compute shaders”
 
 - Each compute pass registers **its own BridgeSpec** (buffers + packer).
     
-- Channels are reusable primitives (ShapesChannel is generic; only its `packer.encodeRow()` differs by spec).
+- Channels are reusable primitives (Render/Transforms channels share the same `BaseChannel`; packers remain pipeline-specific).
     
 - We can host **multiple group(2) layouts** per pipeline, or share buffers between pipelines when the layouts match.
     
@@ -206,11 +172,11 @@ We’ll prep data structures now:
 
 ## Milestones to implement
 
-1. `bakeShapeXforms` (+ fast-path inverse, fallback general inverse)
-    
-2. `ShapesChannel` v2 (inline baked inverse) + partial updates
-    
-3. `OpsChannel` (rows + child buffer) + rebuild-on-topology-change
+1. TransformsChannel partial updates (inverse baking from `propagateTransforms`)
+
+2. RenderChannel with parent + transform index wiring
+
+3. Bounds/child buffers deferred to Phase 4 (keep notes for future OpsChannel work)
     
 4. `GpuBridge` with **spec-based registration**; wire into `Scene`
     
