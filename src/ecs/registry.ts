@@ -26,36 +26,36 @@ export const TransformMeta = defineMeta({
     { key: "local_r22", ctor: Float32Array, default: 1 },
     { key: "local_tz",  ctor: Float32Array, default: 0 },
 
-    // World 3x4 (row-major) — stored but typically recomputed, default 0s
-    { key: "world_r00", ctor: Float32Array, default: 0 },
+    // World 3x4 (row-major) — default to identity
+    { key: "world_r00", ctor: Float32Array, default: 1 },
     { key: "world_r01", ctor: Float32Array, default: 0 },
     { key: "world_r02", ctor: Float32Array, default: 0 },
     { key: "world_tx",  ctor: Float32Array, default: 0 },
 
     { key: "world_r10", ctor: Float32Array, default: 0 },
-    { key: "world_r11", ctor: Float32Array, default: 0 },
+    { key: "world_r11", ctor: Float32Array, default: 1 },
     { key: "world_r12", ctor: Float32Array, default: 0 },
     { key: "world_ty",  ctor: Float32Array, default: 0 },
 
     { key: "world_r20", ctor: Float32Array, default: 0 },
     { key: "world_r21", ctor: Float32Array, default: 0 },
-    { key: "world_r22", ctor: Float32Array, default: 0 },
+    { key: "world_r22", ctor: Float32Array, default: 1 },
     { key: "world_tz",  ctor: Float32Array, default: 0 },
 
-    // Inverse World 3x4 (row-major) — stored but typically recomputed, default 0s
-    { key: "inv_r00", ctor: Float32Array, default: 0 },
+    // Inverse World 3x4 (row-major) — default to identity
+    { key: "inv_r00", ctor: Float32Array, default: 1 },
     { key: "inv_r01", ctor: Float32Array, default: 0 },
     { key: "inv_r02", ctor: Float32Array, default: 0 },
     { key: "inv_tx",  ctor: Float32Array, default: 0 },
 
     { key: "inv_r10", ctor: Float32Array, default: 0 },
-    { key: "inv_r11", ctor: Float32Array, default: 0 },
+    { key: "inv_r11", ctor: Float32Array, default: 1 },
     { key: "inv_r12", ctor: Float32Array, default: 0 },
     { key: "inv_ty",  ctor: Float32Array, default: 0 },
 
     { key: "inv_r20", ctor: Float32Array, default: 0 },
     { key: "inv_r21", ctor: Float32Array, default: 0 },
-    { key: "inv_r22", ctor: Float32Array, default: 0 },
+    { key: "inv_r22", ctor: Float32Array, default: 1 },
     { key: "inv_tz",  ctor: Float32Array, default: 0 },
 
     // Dirty bit (kept in store; not serialized in v1)

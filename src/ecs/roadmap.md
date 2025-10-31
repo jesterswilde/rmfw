@@ -71,13 +71,14 @@ Includes:
 ## - [ ] Phase 3 — Generic GPU Bridge (Incremental & Pluggable)
 **Outcome:** Reusable, partial-update path for CPU→GPU.  
 
-  - [ ] Create a system for having AoS that will map to the GPU version.
-    - This should work with the next point:
-  - [ ] **propagateTransforms**
-    - [ ] Iterate `transformOrder[]`
-    - [ ] Compute `world = parent.world × local`
-    - [ ] Compute `invWorld = inverse(world)` (orthonormal fast path)
-    - [ ] Clear dirty flag; bump `Transform.storeEpoch`
+    - [ ] Create a system for having AoS that will map to the GPU version.
+      - This should work with the next point:
+  - [x] **propagateTransforms**
+    - [x] Iterate `transformOrder[]`
+    - [x] Compute `world = parent.world × local`
+    - [x] Compute `invWorld = inverse(world)` (orthonormal fast path)
+    - [x] Clear dirty flag; bump `Transform.storeEpoch`
+  - [x] Reparented transforms should maintain their world space coordiantes
   - [ ] Allows for full GPU rewrite or writing only dirty ranges
 
 ---

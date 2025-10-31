@@ -1,13 +1,19 @@
-// Phase 2: CPU-only tree wrappers for hierarchical components.
 // src/ecs/trees.ts
 //
-// • HierarchyTree works with ANY component store whose meta has
-//   { parent, firstChild, nextSibling } as Int32 + link:true.
-// • buildAllHierarchyTrees(world) auto-detects all such stores.
-// • TransformTree / RenderTree remain convenience wrappers.
+// Phase 2: CPU-only tree wrappers for hierarchical components.
+// - HierarchyTree works with any store that has { parent, firstChild, nextSibling } link fields.
+// - buildAllHierarchyTrees(world) auto-detects such stores.
+// - TransformTree adds reparent()/makeRoot() that preserve world transform.
+// - RenderTree is a thin convenience wrapper.
 
-import { World, type StoreOf } from "../ecs/core";
-
+import { World, type StoreOf } from "../ecs/core.js";
+import { TransformMeta } from "./registry.js";
+import {
+  isOrthonormal3x3,
+  inverseRigid3x4_into,
+  inverseGeneral3x4_into,
+  mulRigid3x4_into,
+} from "./math.js";
 
 const NONE = -1;
 
@@ -115,8 +121,8 @@ function computeDFSOrder(nodeStore: NodeStore, explicitRootEntityIds?: number[])
   const sortedRoots = Array.from(roots).sort((a, b) => a - b);
   const stack: number[] = [];
 
-  const pushChildren = (e: number) => {
-    const row = nodeStore.denseIndexOf(e)!;
+  const pushChildren = (entityId: number) => {
+    const row = nodeStore.denseIndexOf(entityId)!;
     const acc: number[] = [];
     let c = (cols.firstChild[row]!) | 0;
     while (c !== NONE) {
@@ -192,12 +198,114 @@ export class HierarchyTree {
     this.rebuildOrder();
   }
 
+  /**
+   * Reparent while preserving world transform of `entity`.
+   * local' = inverse(parentWorld_new) * world_current
+   * Then mark entity's Transform dirty so propagate will refresh inverse and cascade.
+   */
   reparent(entity: number, newParent: number) {
     if (entity === newParent) throw new Error("Cannot parent an entity to itself");
     this.ensureNode(entity);
     this.ensureNode(newParent);
+
+    // Preserve world: local' = inv(parentWorld_new) * world(entity)
+    const T = this.world.storeOf(TransformMeta);
+    const tf = T.fields();
+
+    // Parent world (identity if no Transform)
+    let pr00 = 1, pr01 = 0, pr02 = 0, ptx = 0;
+    let pr10 = 0, pr11 = 1, pr12 = 0, pty = 0;
+    let pr20 = 0, pr21 = 0, pr22 = 1, ptz = 0;
+
+    const parentTRow = T.denseIndexOf(newParent);
+    if (parentTRow >= 0) {
+      pr00 = tf.world_r00[parentTRow]!;
+      pr01 = tf.world_r01[parentTRow]!;
+      pr02 = tf.world_r02[parentTRow]!;
+      ptx  = tf.world_tx [parentTRow]!;
+      pr10 = tf.world_r10[parentTRow]!;
+      pr11 = tf.world_r11[parentTRow]!;
+      pr12 = tf.world_r12[parentTRow]!;
+      pty  = tf.world_ty [parentTRow]!;
+      pr20 = tf.world_r20[parentTRow]!;
+      pr21 = tf.world_r21[parentTRow]!;
+      pr22 = tf.world_r22[parentTRow]!;
+      ptz  = tf.world_tz [parentTRow]!;
+    }
+
+    const invParent = new Float32Array(12);
+    if (isOrthonormal3x3(pr00,pr01,pr02, pr10,pr11,pr12, pr20,pr21,pr22)) {
+      inverseRigid3x4_into(pr00,pr01,pr02,ptx, pr10,pr11,pr12,pty, pr20,pr21,pr22,ptz, invParent);
+    } else {
+      inverseGeneral3x4_into(pr00,pr01,pr02,ptx, pr10,pr11,pr12,pty, pr20,pr21,pr22,ptz, invParent);
+    }
+
+    const eTRow = T.denseIndexOf(entity);
+    if (eTRow >= 0) {
+      const wr00 = tf.world_r00[eTRow]!, wr01 = tf.world_r01[eTRow]!, wr02 = tf.world_r02[eTRow]!, wtx = tf.world_tx[eTRow]!;
+      const wr10 = tf.world_r10[eTRow]!, wr11 = tf.world_r11[eTRow]!, wr12 = tf.world_r12[eTRow]!, wty = tf.world_ty[eTRow]!;
+      const wr20 = tf.world_r20[eTRow]!, wr21 = tf.world_r21[eTRow]!, wr22 = tf.world_r22[eTRow]!, wtz = tf.world_tz[eTRow]!;
+
+      const localPrime = new Float32Array(12);
+      mulRigid3x4_into(
+        invParent[0]!, invParent[1]!, invParent[2]!, invParent[3]!,
+        invParent[4]!, invParent[5]!, invParent[6]!, invParent[7]!,
+        invParent[8]!, invParent[9]!, invParent[10]!, invParent[11]!,
+        wr00,wr01,wr02,wtx, wr10,wr11,wr12,wty, wr20,wr21,wr22,wtz,
+        localPrime
+      );
+
+      // Write new local
+      tf.local_r00[eTRow] = localPrime[0]!;
+      tf.local_r01[eTRow] = localPrime[1]!;
+      tf.local_r02[eTRow] = localPrime[2]!;
+      tf.local_tx [eTRow] = localPrime[3]!;
+      tf.local_r10[eTRow] = localPrime[4]!;
+      tf.local_r11[eTRow] = localPrime[5]!;
+      tf.local_r12[eTRow] = localPrime[6]!;
+      tf.local_ty [eTRow] = localPrime[7]!;
+      tf.local_r20[eTRow] = localPrime[8]!;
+      tf.local_r21[eTRow] = localPrime[9]!;
+      tf.local_r22[eTRow] = localPrime[10]!;
+      tf.local_tz [eTRow] = localPrime[11]!;
+      tf.dirty[eTRow] = 1;
+    }
+
+    // Link change
     detachFromParent(this.nodeStore, entity);
     appendChildAtEnd(this.nodeStore, newParent, entity);
+
+    this.bump(entity);
+    this.rebuildOrder();
+  }
+
+  /** Make entity a root while preserving its world: local' = world(entity). */
+  makeRoot(entity: number) {
+    this.ensureNode(entity);
+
+    const T = this.world.storeOf(TransformMeta);
+    const tf = T.fields();
+    const eTRow = T.denseIndexOf(entity);
+
+    if (eTRow >= 0) {
+      tf.local_r00[eTRow] = tf.world_r00[eTRow]!;
+      tf.local_r01[eTRow] = tf.world_r01[eTRow]!;
+      tf.local_r02[eTRow] = tf.world_r02[eTRow]!;
+      tf.local_tx [eTRow] = tf.world_tx [eTRow]!;
+      tf.local_r10[eTRow] = tf.world_r10[eTRow]!;
+      tf.local_r11[eTRow] = tf.world_r11[eTRow]!;
+      tf.local_r12[eTRow] = tf.world_r12[eTRow]!;
+      tf.local_ty [eTRow] = tf.world_ty [eTRow]!;
+      tf.local_r20[eTRow] = tf.world_r20[eTRow]!;
+      tf.local_r21[eTRow] = tf.world_r21[eTRow]!;
+      tf.local_r22[eTRow] = tf.world_r22[eTRow]!;
+      tf.local_tz [eTRow] = tf.world_tz [eTRow]!;
+      tf.dirty[eTRow] = 1;
+    }
+
+    // Detach from hierarchy
+    detachFromParent(this.nodeStore, entity);
+
     this.bump(entity);
     this.rebuildOrder();
   }
