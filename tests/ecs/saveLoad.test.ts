@@ -1,4 +1,5 @@
 // tests/ecs/saveLoad.test.ts
+import { defineMeta } from "../../src/ecs/core";
 import { initWorld, Transform, TransformNode, RenderNode, ShapeLeaf, Operation } from "../../src/ecs/registry";
 import { TransformTree, RenderTree } from "../../src/ecs/trees";
 import { saveScene } from "../../src/ecs/save";
@@ -190,5 +191,82 @@ describe("rmfw save/load (dynamic, meta-driven)", () => {
     const TN = world.store(TransformNode.meta.name);
     expect(TN.has(0)).toBe(true);
     expect(TN.has(1)).toBe(false); // second entry in mask is 0, third is out-of-range
+  });
+
+  test("saveScene remaps sparse entity ids in link columns", () => {
+    const world = initWorld({ initialCapacity: 8 });
+    const TN = world.store(TransformNode.meta.name);
+
+    const root = world.createEntity(); // 0
+    const removed = world.createEntity(); // 1 (will be destroyed)
+    const child = world.createEntity(); // 2
+
+    TN.add(root, { parent: NONE, firstChild: child, nextSibling: NONE });
+    TN.add(child, { parent: root, firstChild: NONE, nextSibling: NONE });
+
+    world.destroyEntity(removed); // create a gap so live ids are [0, 2]
+
+    const scene = saveScene(world, { includeRoots: true });
+    expect(scene.entityCount).toBe(2);
+
+    const block = scene.components.find(c => c.name === TransformNode.meta.name)!;
+    expect(block.present).toEqual([1, 1]);
+
+    const pIdx = block.fieldOrder!.indexOf("parent");
+    const fcIdx = block.fieldOrder!.indexOf("firstChild");
+    expect(block.columns?.[pIdx]).toEqual([NONE, 0]); // child parent remapped to 0
+    expect(block.columns?.[fcIdx]).toEqual([1, NONE]); // root firstChild remapped to 1
+
+    expect(scene.roots?.transform).toEqual([0]);
+  });
+
+  test("loadScene rebuilds DFS for dynamically detected hierarchy stores with root hints map", () => {
+    const auxMeta = defineMeta({
+      name: "AuxNode",
+      fields: [
+        { key: "parent", ctor: Int32Array, default: NONE, link: true },
+        { key: "firstChild", ctor: Int32Array, default: NONE, link: true },
+        { key: "nextSibling", ctor: Int32Array, default: NONE, link: true },
+      ] as const,
+    });
+
+    const world = initWorld({ initialCapacity: 8 });
+    world.register({ meta: auxMeta }, 8);
+
+    const scene = {
+      version: 1 as const,
+      project: "rmfw" as const,
+      entityCount: 3,
+      components: [
+        {
+          name: auxMeta.name,
+          present: [1, 1, 1],
+          fieldOrder: ["parent", "firstChild", "nextSibling"],
+          columns: [
+            [NONE, 0, 1],
+            [1, 2, NONE],
+            [NONE, NONE, NONE],
+          ],
+        },
+      ],
+      roots: { [auxMeta.name]: [0] },
+    };
+
+    const { trees } = loadScene(world, scene as any);
+    const auxTree = trees.get(auxMeta.name);
+    expect(auxTree).toBeDefined();
+    expect(Array.from(auxTree!.order)).toEqual([0, 1, 2]);
+
+    const store = world.store(auxMeta.name);
+    const cols = store.fields() as any;
+    const row0 = store.denseIndexOf(0);
+    const row1 = store.denseIndexOf(1);
+    const row2 = store.denseIndexOf(2);
+
+    expect(cols.parent[row0]).toBe(NONE);
+    expect(cols.firstChild[row0]).toBe(1);
+    expect(cols.parent[row1]).toBe(0);
+    expect(cols.firstChild[row1]).toBe(2);
+    expect(cols.parent[row2]).toBe(1);
   });
 });

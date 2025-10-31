@@ -200,4 +200,24 @@ describe("Phase 2 — Tree wrappers (TransformTree, RenderTree)", () => {
     expect(idxB).toBeGreaterThan(idxA); // B remains under A
     expect(idxD).toBeGreaterThan(idxC); // D remains under C
   });
+
+  test("tree mutations bump per-entity epochs for the touched entity", () => {
+    const world = initWorld({ initialCapacity: 16 });
+    const tTree = new TransformTree(world);
+
+    const parent = world.createEntity();
+    const child = world.createEntity();
+
+    const epochBeforeAdd = world.entityEpoch[child]!;
+    tTree.addChild(parent, child);
+    expect(world.entityEpoch[child]).toBe((epochBeforeAdd + 1) >>> 0);
+
+    const epochBeforeReparent = world.entityEpoch[child]!;
+    tTree.reparent(child, parent);
+    expect(world.entityEpoch[child]).toBe((epochBeforeReparent + 1) >>> 0);
+
+    const epochBeforeRemove = world.entityEpoch[child]!;
+    tTree.remove(child);
+    expect(world.entityEpoch[child]).toBe((epochBeforeRemove + 1) >>> 0);
+  });
 });
