@@ -68,7 +68,7 @@ Includes:
 
 ---
 
-## - [ ] Phase 3 — Generic GPU Bridge (Incremental & Pluggable)
+## - [x] Phase 3 — Generic GPU Bridge (Incremental & Pluggable)
 **Outcome:** Reusable CPU→GPU path with partial uploads; channels are modular and bound explicitly.
 
     - [x] propagateTransforms
@@ -76,9 +76,9 @@ Includes:
         - [x] Compute `invWorld = inverse(world)` (orthonormal fast path)
         - [x] Clear dirty flag; bump `Transform.storeEpoch`
     - [x] Reparented transforms maintain world-space coordinates
-    - [ ] AoS Channels:
+    - [x] AoS Channels:
         - [X] Implement `TransformsChannel` (inverse world only, 12 f32/row)
-        - [ ] Implement `RenderChannel` (ops/shapes, mixed f32/i32 views)
+        - [x] Implement `RenderChannel` (ops/shapes, mixed f32/i32 views)
     - [x] GPU Bridge:
         - [x] Explicit (group, binding) registration; no sorting or remap
         - [X] Supports full GPU rewrite or partial range updates
