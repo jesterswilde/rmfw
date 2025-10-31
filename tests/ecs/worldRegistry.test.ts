@@ -1,38 +1,35 @@
 // tests/ecs/worldRegistry.test.ts
-import {
-  initWorld,
-  Transform,
-  TransformNode,
-  RenderNode,
-  ShapeLeaf,
-  Operation,
-} from "../../src/ecs/registry";
+import { initWorld, Transform, TransformMeta, TransformNode, TransformNodeMeta, RenderNode, ShapeLeaf, Operation } from "../../src/ecs/registry";
 
 describe("World + Registry", () => {
   test("initWorld registers all components and store() retrieves them", () => {
     const world = initWorld({ initialCapacity: 8 });
 
-    const t  = world.store(Transform.meta.name);
-    const tn = world.store(TransformNode.meta.name);
+    // Prefer typed lookups
+    const t  = world.storeOf(TransformMeta);
+    const tn = world.storeOf(TransformNodeMeta);
     const rn = world.store(RenderNode.meta.name);
     const sl = world.store(ShapeLeaf.meta.name);
     const op = world.store(Operation.meta.name);
 
-    expect(t.name).toBe("Transform");
-    expect(tn.name).toBe("TransformNode");
-    expect(rn.name).toBe("RenderNode");
-    expect(sl.name).toBe("ShapeLeaf");
-    expect(op.name).toBe("Operation");
+    expect(t.name).toBe(TransformMeta.name);
+    expect(tn.name).toBe(TransformNodeMeta.name);
+    expect(rn.name).toBe(RenderNode.meta.name);
+    expect(sl.name).toBe(ShapeLeaf.meta.name);
+    expect(op.name).toBe(Operation.meta.name);
 
-    // sanity: stores expose ordered field list
-    expect(Array.isArray(t.fieldOrder)).toBe(true);
-    expect(t.fieldOrder.length).toBeGreaterThan(0);
+    // Meta is present and ordered
+    expect(Array.isArray(t.meta.fields)).toBe(true);
+    expect(Array.isArray(tn.meta.fields)).toBe(true);
+
+    const tFieldOrder = t.meta.fields.map(f => f.key);
+    expect(tFieldOrder.slice(0, 4)).toEqual(["local_r00", "local_r01", "local_r02", "local_tx"]);
   });
 
   test("destroyEntity removes rows from all stores and bumps allocator entityEpoch", () => {
     const world = initWorld({ initialCapacity: 8 });
-    const t  = world.store(Transform.meta.name);
-    const tn = world.store(TransformNode.meta.name);
+    const t  = world.storeOf(TransformMeta);
+    const tn = world.storeOf(TransformNodeMeta);
 
     const e = world.createEntity();
 

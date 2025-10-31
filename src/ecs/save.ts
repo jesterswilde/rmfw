@@ -4,6 +4,10 @@ import { Transform, TransformNode, RenderNode, ShapeLeaf, Operation } from "../e
 
 const NONE = -1;
 
+const isLinkField = (f: { readonly key: string; readonly link?: boolean }): boolean =>
+  f.link === true;
+
+
 export interface RmfwComponentBlockV1 {
   name: string;
   present: number[];        // length = entityCount (0/1)
@@ -67,7 +71,7 @@ function collectComponentBlock(
         continue; // tolerate missing column
     const out = new Array<number>(denseRows.length);
 
-    if (f.link) {
+    if (isLinkField(f)) {
       for (let j = 0; j < denseRows.length; j++) {
         const v = (col as any)[denseRows[j]!] | 0;
         out[j] = v === NONE ? NONE : remapId(v);

@@ -1,12 +1,13 @@
 // Phase 2: CPU-only tree wrappers for hierarchical components.
 // src/ecs/trees.ts
 //
-// - TransformTree and RenderTree maintain deterministic DFS orders and bump epochs.
-// - addChild, remove (detach subtree), reparent.
-// - Rebuild order arrays on structural change.
+// • HierarchyTree works with ANY component store whose meta has
+//   { parent, firstChild, nextSibling } as Int32 + link:true.
+// • buildAllHierarchyTrees(world) auto-detects all such stores.
+// • TransformTree / RenderTree remain convenience wrappers.
 
-import { World, type StoreHandle } from "../ecs/core.js";
-import { Transform, TransformNode, RenderNode } from "./registry.js";
+import { World, type StoreOf } from "../ecs/core";
+
 
 const NONE = -1;
 
@@ -17,7 +18,22 @@ interface NodeColumns {
   nextSibling: Int32Array; // next sibling in list
 }
 
-type NodeStore = StoreHandle<any>;
+type NodeStore = StoreOf<any>;
+
+export function isHierarchyStore(store: NodeStore): boolean {
+  const m = (store as any).meta as { fields: { key: string; ctor: any; link?: boolean }[] } | undefined;
+  if (!m || !Array.isArray(m.fields)) return false;
+
+  const need = new Set(["parent", "firstChild", "nextSibling"]);
+  let ok = 0;
+  for (const f of m.fields) {
+    if (!need.has(f.key)) continue;
+    const isI32 = f.ctor === Int32Array;
+    const isLink = !!f.link;
+    if (isI32 && isLink) ok++;
+  }
+  return ok === 3;
+}
 
 /** Narrow untyped fields() to our explicit NodeColumns shape. */
 function nodeColumns(store: NodeStore): NodeColumns {
@@ -30,237 +46,200 @@ function detachFromParent(nodeStore: NodeStore, entityId: number) {
   const denseIndex = nodeStore.denseIndexOf(entityId);
   if (denseIndex < 0) return;
 
-  const parentEntityId = cols.parent[denseIndex]! | 0;
+  const parentEntityId = (cols.parent[denseIndex]!) | 0;
   if (parentEntityId === NONE) return;
 
   const parentDenseIndex = nodeStore.denseIndexOf(parentEntityId);
   if (parentDenseIndex < 0) return;
 
-  let previousSiblingEntityId = NONE;
-  let currentSiblingEntityId = cols.firstChild[parentDenseIndex]! | 0;
+  let prev = NONE;
+  let cur = (cols.firstChild[parentDenseIndex]!) | 0;
 
-  while (currentSiblingEntityId !== NONE) {
-    const currentSiblingDenseIndex = nodeStore.denseIndexOf(currentSiblingEntityId);
+  while (cur !== NONE) {
+    const curDense = nodeStore.denseIndexOf(cur)!;
 
-    if (currentSiblingEntityId === entityId) {
-      const nextSiblingEntityId = cols.nextSibling[currentSiblingDenseIndex]! | 0;
+    if (cur === entityId) {
+      const next = (cols.nextSibling[curDense]!) | 0;
+      if (prev === NONE) cols.firstChild[parentDenseIndex] = next;
+      else cols.nextSibling[nodeStore.denseIndexOf(prev)!] = next;
 
-      if (previousSiblingEntityId === NONE) {
-        // Removing the head of the child list.
-        cols.firstChild[parentDenseIndex] = nextSiblingEntityId;
-      } else {
-        // Bridge previous → next to skip the removed node.
-        const previousSiblingDenseIndex = nodeStore.denseIndexOf(previousSiblingEntityId)!;
-        cols.nextSibling[previousSiblingDenseIndex] = nextSiblingEntityId;
-      }
-
-      // Clear this node's links.
       cols.parent[denseIndex] = NONE;
       cols.nextSibling[denseIndex] = NONE;
       return;
     }
-
-    previousSiblingEntityId = currentSiblingEntityId;
-    currentSiblingEntityId = cols.nextSibling[currentSiblingDenseIndex]! | 0;
+    prev = cur;
+    cur = (cols.nextSibling[curDense]!) | 0;
   }
 }
 
 /** Append child at the end of the parent's child list (stable order among siblings). */
 function appendChildAtEnd(nodeStore: NodeStore, parentEntityId: number, childEntityId: number) {
   const cols = nodeColumns(nodeStore);
-  const parentDenseIndex = nodeStore.denseIndexOf(parentEntityId);
-  const childDenseIndex = nodeStore.denseIndexOf(childEntityId);
+  const pRow = nodeStore.denseIndexOf(parentEntityId);
+  const cRow = nodeStore.denseIndexOf(childEntityId);
+  if (pRow < 0 || cRow < 0) throw new Error("appendChildAtEnd: missing node component(s)");
 
-  if (parentDenseIndex < 0 || childDenseIndex < 0) {
-    throw new Error("appendChildAtEnd: missing node component(s)");
-  }
-
-  let lastChildEntityId = cols.firstChild[parentDenseIndex]! | 0;
-
-  if (lastChildEntityId === NONE) {
-    cols.firstChild[parentDenseIndex] = parentEntityId === NONE ? NONE : (childEntityId | 0);
+  let lastChild = (cols.firstChild[pRow]!) | 0;
+  if (lastChild === NONE) {
+    cols.firstChild[pRow] = childEntityId | 0;
   } else {
-    // Walk to the tail sibling, then link the new child there.
     while (true) {
-      const lastChildDenseIndex = nodeStore.denseIndexOf(lastChildEntityId)!;
-      const nextSiblingEntityId = cols.nextSibling[lastChildDenseIndex]! | 0;
-      if (nextSiblingEntityId === NONE) {
-        cols.nextSibling[lastChildDenseIndex] = childEntityId | 0;
-        break;
-      }
-      lastChildEntityId = nextSiblingEntityId;
+      const lastRow = nodeStore.denseIndexOf(lastChild)!;
+      const next = (cols.nextSibling[lastRow]!) | 0;
+      if (next === NONE) { cols.nextSibling[lastRow] = childEntityId | 0; break; }
+      lastChild = next;
     }
   }
-
-  cols.parent[childDenseIndex] = parentEntityId | 0;
-  cols.nextSibling[childDenseIndex] = NONE;
+  cols.parent[cRow] = parentEntityId | 0;
+  cols.nextSibling[cRow] = NONE;
 }
 
-/** Compute a deterministic DFS order of entities for a given node store. */
+/** Compute a deterministic DFS order for the given hierarchy store. */
 function computeDFSOrder(nodeStore: NodeStore, explicitRootEntityIds?: number[]): Int32Array {
   const cols = nodeColumns(nodeStore);
-  const orderedEntities: number[] = [];
+  const ordered: number[] = [];
 
-  // Determine root set either from explicit roots or by scanning for parent == NONE.
-  const rootEntityIds = new Set<number>();
+  // Roots either explicitly provided or discovered via parent == -1
+  const roots = new Set<number>();
   if (explicitRootEntityIds?.length) {
-    for (const rootId of explicitRootEntityIds) rootEntityIds.add(rootId);
+    for (const r of explicitRootEntityIds) roots.add(r);
   } else {
-    const denseToEntity = nodeStore.denseToEntity;
+    const d2e = nodeStore.denseToEntity;
     for (let i = 0; i < nodeStore.size; i++) {
-      const entityId = denseToEntity[i]!;
-      const rowIndex = nodeStore.denseIndexOf(entityId)!;
-      if ((cols.parent[rowIndex]! | 0) === NONE) rootEntityIds.add(entityId);
+      const e = d2e[i]!;
+      const row = nodeStore.denseIndexOf(e)!;
+      if (((cols.parent[row]!) | 0) === NONE) roots.add(e);
     }
   }
 
-  // Deterministic root ordering by ascending entity id.
-  const sortedRootEntityIds = Array.from(rootEntityIds.values()).sort((a, b) => a - b);
-
-  // Iterative DFS using an explicit stack; push children in reverse to preserve left-to-right.
+  const sortedRoots = Array.from(roots).sort((a, b) => a - b);
   const stack: number[] = [];
-  const pushChildren = (entityId: number) => {
-    const rowIndex = nodeStore.denseIndexOf(entityId)!;
-    const childBuffer: number[] = [];
-    let childEntityId = cols.firstChild[rowIndex]! | 0;
-    while (childEntityId !== NONE) {
-      childBuffer.push(childEntityId);
-      const childRow = nodeStore.denseIndexOf(childEntityId)!;
-      childEntityId = cols.nextSibling[childRow]! | 0;
+
+  const pushChildren = (e: number) => {
+    const row = nodeStore.denseIndexOf(e)!;
+    const acc: number[] = [];
+    let c = (cols.firstChild[row]!) | 0;
+    while (c !== NONE) {
+      acc.push(c);
+      const cr = nodeStore.denseIndexOf(c)!;
+      c = (cols.nextSibling[cr]!) | 0;
     }
-    for (let i = childBuffer.length - 1; i >= 0; i--) stack.push(childBuffer[i]!);
+    for (let i = acc.length - 1; i >= 0; i--) stack.push(acc[i]!);
   };
 
-  for (let i = sortedRootEntityIds.length - 1; i >= 0; i--) {
-    stack.push(sortedRootEntityIds[i]!);
-  }
-
+  for (let i = sortedRoots.length - 1; i >= 0; i--) stack.push(sortedRoots[i]!);
   while (stack.length) {
-    const currentEntityId = stack.pop()!;
-    orderedEntities.push(currentEntityId);
-    pushChildren(currentEntityId);
+    const e = stack.pop()!;
+    ordered.push(e);
+    pushChildren(e);
   }
 
-  return Int32Array.from(orderedEntities);
+  return Int32Array.from(ordered);
 }
 
 /** Base class: stores DFS order + epoch and exposes rebuild hook. */
-class BaseTree {
+export class HierarchyTree {
+  readonly componentName: string;
   protected world: World;
   protected nodeStore: NodeStore;
-  protected _depthFirstOrder: Int32Array = new Int32Array(0);
-  protected _treeEpoch = 0;
+  protected _order: Int32Array = new Int32Array(0);
+  protected _epoch = 0;
 
   constructor(world: World, nodeStore: NodeStore) {
     this.world = world;
     this.nodeStore = nodeStore;
+    this.componentName = (nodeStore as any).name as string;
   }
 
-  /** DFS order (root-first, stable sibling order). */
-  get order(): Int32Array { return this._depthFirstOrder; }
+  get order(): Int32Array { return this._order; }
+  get epoch(): number { return this._epoch; }
 
-  /** Tree epoch; bumps on structural change or order rebuild. */
-  get epoch(): number { return this._treeEpoch; }
-
-  /** Bump internal epoch and optionally the world's per-entity epoch. */
-  protected bumpEpoch(entityHint?: number) {
-    this._treeEpoch++;
+  protected bump(entityHint?: number) {
+    this._epoch++;
     if (entityHint != null && entityHint >= 0) {
       const id = entityHint | 0;
-      if (id < this.world.entityEpoch.length) {
+      if (id < this.world.entityEpoch.length)
         this.world.entityEpoch[id] = (this.world.entityEpoch[id]! + 1) >>> 0;
-      }
     }
   }
 
-  /** Recompute deterministic DFS order from current links. */
-  rebuildOrder(explicitRootEntityIds?: number[]) {
-    this._depthFirstOrder = computeDFSOrder(this.nodeStore, explicitRootEntityIds);
-    this._treeEpoch++;
-  }
-}
-
-/** TransformTree: ensures Transform is present and manages hierarchy under TransformNode. */
-export class TransformTree extends BaseTree {
-  constructor(world: World) {
-    super(world, world.store(TransformNode.meta.name));
+  rebuildOrder(explicitRoots?: number[]) {
+    this._order = computeDFSOrder(this.nodeStore, explicitRoots);
+    this._epoch++;
   }
 
-  /** Ensure this entity has both Transform and TransformNode components. */
-  private ensureTransformNode(entityId: number) {
-    const transformStore = this.world.store(Transform.meta.name);
-    const transformNodeStore = this.nodeStore;
-    if (!transformStore.has(entityId)) transformStore.add(entityId);
-    if (!transformNodeStore.has(entityId)) {
-      transformNodeStore.add(entityId, { parent: NONE, firstChild: NONE, nextSibling: NONE });
-    }
-  }
-
-  addChild(parentEntityId: number, childEntityId: number) {
-    this.ensureTransformNode(parentEntityId);
-    this.ensureTransformNode(childEntityId);
-    detachFromParent(this.nodeStore, childEntityId);
-    appendChildAtEnd(this.nodeStore, parentEntityId, childEntityId);
-    this.bumpEpoch(childEntityId);
-    this.rebuildOrder();
-  }
-
-  /** Detach the subtree rooted at entityId; it becomes a root. */
-  remove(entityId: number) {
-    if (!this.nodeStore.has(entityId)) return;
-    detachFromParent(this.nodeStore, entityId);
-    this.bumpEpoch(entityId);
-    this.rebuildOrder();
-  }
-
-  /** Move a subtree under a new parent (append as last child). */
-  reparent(entityId: number, newParentEntityId: number) {
-    if (entityId === newParentEntityId) throw new Error("Cannot parent an entity to itself");
-    this.ensureTransformNode(entityId);
-    this.ensureTransformNode(newParentEntityId);
-    detachFromParent(this.nodeStore, entityId);
-    appendChildAtEnd(this.nodeStore, newParentEntityId, entityId);
-    this.bumpEpoch(entityId);
-    this.rebuildOrder();
-  }
-}
-
-/** RenderTree: manages hierarchy under RenderNode. */
-export class RenderTree extends BaseTree {
-  constructor(world: World) {
-    super(world, world.store(RenderNode.meta.name));
-  }
-
-  /** Ensure this entity has a RenderNode component. */
-  private ensureRenderNode(entityId: number) {
+  /** Ensure this entity has the node component (neutral defaults). */
+  protected ensureNode(entityId: number) {
     if (!this.nodeStore.has(entityId)) {
-      this.nodeStore.add(entityId, { parent: NONE, firstChild: NONE, nextSibling: NONE });
+      this.nodeStore.add(entityId, { parent: NONE, firstChild: NONE, nextSibling: NONE } as any);
     }
   }
 
-  addChild(parentEntityId: number, childEntityId: number) {
-    this.ensureRenderNode(parentEntityId);
-    this.ensureRenderNode(childEntityId);
-    detachFromParent(this.nodeStore, childEntityId);
-    appendChildAtEnd(this.nodeStore, parentEntityId, childEntityId);
-    this.bumpEpoch(childEntityId);
+  addChild(parent: number, child: number) {
+    this.ensureNode(parent);
+    this.ensureNode(child);
+    detachFromParent(this.nodeStore, child);
+    appendChildAtEnd(this.nodeStore, parent, child);
+    this.bump(child);
     this.rebuildOrder();
   }
 
-  remove(entityId: number) {
-    if (!this.nodeStore.has(entityId)) return;
-    detachFromParent(this.nodeStore, entityId);
-    this.bumpEpoch(entityId);
+  /** Detach subtree root from parent (becomes a root). */
+  remove(entity: number) {
+    if (!this.nodeStore.has(entity)) return;
+    detachFromParent(this.nodeStore, entity);
+    this.bump(entity);
     this.rebuildOrder();
   }
 
-  reparent(entityId: number, newParentEntityId: number) {
-    if (entityId === newParentEntityId) throw new Error("Cannot parent an entity to itself");
-    this.ensureRenderNode(entityId);
-    this.ensureRenderNode(newParentEntityId);
-    detachFromParent(this.nodeStore, entityId);
-    appendChildAtEnd(this.nodeStore, newParentEntityId, entityId);
-    this.bumpEpoch(entityId);
+  reparent(entity: number, newParent: number) {
+    if (entity === newParent) throw new Error("Cannot parent an entity to itself");
+    this.ensureNode(entity);
+    this.ensureNode(newParent);
+    detachFromParent(this.nodeStore, entity);
+    appendChildAtEnd(this.nodeStore, newParent, entity);
+    this.bump(entity);
     this.rebuildOrder();
   }
+}
+
+/** Auto-detect all hierarchy component stores and return trees keyed by component name. */
+export function buildAllHierarchyTrees(world: World): Map<string, HierarchyTree> {
+  const trees = new Map<string, HierarchyTree>();
+  const worldAny = world as any;
+
+  // Prefer internal helpers if present.
+  const names: string[] =
+    typeof worldAny.__listStoreNames === "function"
+      ? (worldAny.__listStoreNames() as string[])
+      : ["TransformNode", "RenderNode"]; // fallback guesses (safe to ignore if not found)
+
+  const seen = new Set<string>();
+  for (const n of names) {
+    try {
+      const store = world.store(n);
+      if (isHierarchyStore(store)) {
+        trees.set(n, new HierarchyTree(world, store));
+        seen.add(n);
+      }
+    } catch { /* ignore unknown */ }
+  }
+
+  if (typeof worldAny.__forEachStore === "function") {
+    worldAny.__forEachStore((name: string, store: NodeStore) => {
+      if (!seen.has(name) && isHierarchyStore(store)) {
+        trees.set(name, new HierarchyTree(world, store));
+      }
+    });
+  }
+
+  return trees;
+}
+
+/** Optional convenience wrappers for legacy callsites. */
+export class TransformTree extends HierarchyTree {
+  constructor(world: World) { super(world, world.store("TransformNode")); }
+}
+export class RenderTree extends HierarchyTree {
+  constructor(world: World) { super(world, world.store("RenderNode")); }
 }

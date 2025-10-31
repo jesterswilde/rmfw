@@ -52,21 +52,19 @@ Includes:
 ## - [ ] Phase 2 — Migrate Systems (CPU-only)
 **Outcome:** Replace legacy systems (`propagateTransform`, `loadScene` ) and create Tree wrappers for hierarchical components.
 
-- [ ] **TransformTree**
-  - [ ] `addChild`, `remove`, `reparent`
-  - [ ] Maintain `transformOrder[]` (DFS)
-  - [ ] Maintain `transformTreeEpoch`
-- [ ] **RenderTree**
-  - [ ] `addChild`, `remove`, `reparent`
-  - [ ] Maintain `renderOrder[]` (DFS)
-  - [ ] Maintain `renderTreeEpoch`
-  - [ ] Leaves → `ShapeLeaf`; internals → `Operation`
-- [ ] **loadScene (rewrite)**
-  - [ ] Parse JSON scene
-  - [ ] Create entities
-  - [ ] Add `Transform` + `TransformNode`
-  - [ ] Add `RenderNode` (build RenderTree)
-  - [ ] Add `ShapeLeaf` or `Operation`
+- [x] **TransformTree**
+  - [x] `addChild`, `remove`, `reparent`
+  - [x] Maintain `transformOrder[]` (DFS)
+  - [x] Maintain `transformTreeEpoch`
+- [x] **RenderTree**
+  - [x] `addChild`, `remove`, `reparent`
+  - [x] Maintain `renderOrder[]` (DFS)
+  - [x] Maintain `renderTreeEpoch`
+  - [x] Leaves → `ShapeLeaf`; internals → `Operation`
+- [ ] **Save and Load Scene**
+  - [x] Can save a scene wih various components
+  - [x] Can load a json scene file
+  - [x] Can load a scene, then save it, and have the data look right
 
 ---
 

@@ -1,13 +1,16 @@
+// src/ecs/registry.ts
 // Registry with self-describing component metadata (ordered fields, defaults, link flags)
 
-import { World, type ComponentDef, type ComponentMeta } from "./core.js";
+import { World, defineMeta, type Def, type ComponentMeta } from "./core.js";
 
-// ----- Component metas (every field is a scalar = 1 column) -----
+const NONE = -1;
 
-export const TransformMeta: ComponentMeta = {
+// ----- Component metas (each field is a scalar = 1 column) -----
+
+export const TransformMeta = defineMeta({
   name: "Transform",
   fields: [
-    // Local 3x4 (row-major)
+    // Local 3x4 (row-major): identity defaults
     { key: "local_r00", ctor: Float32Array, default: 1 },
     { key: "local_r01", ctor: Float32Array, default: 0 },
     { key: "local_r02", ctor: Float32Array, default: 0 },
@@ -23,7 +26,7 @@ export const TransformMeta: ComponentMeta = {
     { key: "local_r22", ctor: Float32Array, default: 1 },
     { key: "local_tz",  ctor: Float32Array, default: 0 },
 
-    // World 3x4 (row-major) — included in store; usually omitted in save
+    // World 3x4 (row-major) — stored but typically recomputed, default 0s
     { key: "world_r00", ctor: Float32Array, default: 0 },
     { key: "world_r01", ctor: Float32Array, default: 0 },
     { key: "world_r02", ctor: Float32Array, default: 0 },
@@ -39,7 +42,7 @@ export const TransformMeta: ComponentMeta = {
     { key: "world_r22", ctor: Float32Array, default: 0 },
     { key: "world_tz",  ctor: Float32Array, default: 0 },
 
-    // Inverse World 3x4 (row-major) — included in store; usually omitted in save
+    // Inverse World 3x4 (row-major) — stored but typically recomputed, default 0s
     { key: "inv_r00", ctor: Float32Array, default: 0 },
     { key: "inv_r01", ctor: Float32Array, default: 0 },
     { key: "inv_r02", ctor: Float32Array, default: 0 },
@@ -57,28 +60,28 @@ export const TransformMeta: ComponentMeta = {
 
     // Dirty bit (kept in store; not serialized in v1)
     { key: "dirty", ctor: Int32Array, default: 0 },
-  ],
-};
+  ] as const,
+});
 
-export const TransformNodeMeta: ComponentMeta = {
+export const TransformNodeMeta = defineMeta({
   name: "TransformNode",
   fields: [
-    { key: "parent",      ctor: Int32Array, default: -1, link: true }, // -1 if root
-    { key: "firstChild",  ctor: Int32Array, default: -1, link: true }, // head of child list
-    { key: "nextSibling", ctor: Int32Array, default: -1, link: true }, // sibling
-  ],
-};
+    { key: "parent",      ctor: Int32Array, default: NONE, link: true }, // -1 if root
+    { key: "firstChild",  ctor: Int32Array, default: NONE, link: true }, // head of child list
+    { key: "nextSibling", ctor: Int32Array, default: NONE, link: true }, // sibling
+  ] as const,
+});
 
-export const RenderNodeMeta: ComponentMeta = {
+export const RenderNodeMeta = defineMeta({
   name: "RenderNode",
   fields: [
-    { key: "parent",      ctor: Int32Array, default: -1, link: true },
-    { key: "firstChild",  ctor: Int32Array, default: -1, link: true },
-    { key: "nextSibling", ctor: Int32Array, default: -1, link: true },
-  ],
-};
+    { key: "parent",      ctor: Int32Array, default: NONE, link: true },
+    { key: "firstChild",  ctor: Int32Array, default: NONE, link: true },
+    { key: "nextSibling", ctor: Int32Array, default: NONE, link: true },
+  ] as const,
+});
 
-export const ShapeLeafMeta: ComponentMeta = {
+export const ShapeLeafMeta = defineMeta({
   name: "ShapeLeaf",
   fields: [
     { key: "shapeType", ctor: Int32Array,   default: 0 }, // renderer interprets
@@ -88,22 +91,22 @@ export const ShapeLeafMeta: ComponentMeta = {
     { key: "p3",        ctor: Float32Array, default: 0 },
     { key: "p4",        ctor: Float32Array, default: 0 },
     { key: "p5",        ctor: Float32Array, default: 0 },
-  ],
-};
+  ] as const,
+});
 
-export const OperationMeta: ComponentMeta = {
+export const OperationMeta = defineMeta({
   name: "Operation",
   fields: [
     { key: "opType", ctor: Int32Array, default: 0 }, // union / subtract / intersect...
-  ],
-};
+  ] as const,
+});
 
-// Convenient exports (name-same-as-meta for existing code)
-export const Transform   = { meta: TransformMeta }   satisfies ComponentDef;
-export const TransformNode = { meta: TransformNodeMeta } satisfies ComponentDef;
-export const RenderNode  = { meta: RenderNodeMeta }  satisfies ComponentDef;
-export const ShapeLeaf   = { meta: ShapeLeafMeta }   satisfies ComponentDef;
-export const Operation   = { meta: OperationMeta }   satisfies ComponentDef;
+// Convenient defs (typed)
+export const Transform:     Def<typeof TransformMeta>     = { meta: TransformMeta };
+export const TransformNode: Def<typeof TransformNodeMeta> = { meta: TransformNodeMeta };
+export const RenderNode:    Def<typeof RenderNodeMeta>    = { meta: RenderNodeMeta };
+export const ShapeLeaf:     Def<typeof ShapeLeafMeta>     = { meta: ShapeLeafMeta };
+export const Operation:     Def<typeof OperationMeta>     = { meta: OperationMeta };
 
 // ----- Registry setup helper -----
 export function initWorld(cfg?: { initialCapacity?: number }) {

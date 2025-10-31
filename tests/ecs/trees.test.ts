@@ -1,4 +1,4 @@
-// test/trees.test.ts
+// tests/ecs/trees.test.ts
 import { initWorld } from "../../src/ecs/registry";
 import { TransformTree, RenderTree } from "../../src/ecs/trees";
 
@@ -88,8 +88,8 @@ describe("Phase 2 — Tree wrappers (TransformTree, RenderTree)", () => {
     const rn = world.store("RenderNode");
     const bTRow = tn.denseIndexOf(b);
     const bRRow = rn.denseIndexOf(b);
-    expect(tn.fields().parent[bTRow]).toBe(NONE);
-    expect(rn.fields().parent[bRRow]).toBe(NONE);
+    expect((tn.fields() as any).parent[bTRow]).toBe(NONE);
+    expect((rn.fields() as any).parent[bRRow]).toBe(NONE);
 
     // Epoch bumped
     expect(tTree.epoch).toBeGreaterThan(epochBeforeT);
@@ -108,16 +108,11 @@ describe("Phase 2 — Tree wrappers (TransformTree, RenderTree)", () => {
     tTree.addChild(a, b);
     rTree.addChild(a, b);
 
-    // Explicitly make D a root by giving it node components (and Transform for TransformTree).
-    const tStore = world.store("Transform");
+    // Explicitly make D a root by giving it node components.
     const tnStore = world.store("TransformNode");
     const rnStore = world.store("RenderNode");
-
-    if (!tStore.has(d)) tStore.add(d);
-    if (!tnStore.has(d))
-      tnStore.add(d, { parent: -1, firstChild: -1, nextSibling: -1 });
-    if (!rnStore.has(d))
-      rnStore.add(d, { parent: -1, firstChild: -1, nextSibling: -1 });
+    if (!tnStore.has(d)) tnStore.add(d, { parent: -1, firstChild: -1, nextSibling: -1 });
+    if (!rnStore.has(d)) rnStore.add(d, { parent: -1, firstChild: -1, nextSibling: -1 });
 
     // Recompute orders
     tTree.rebuildOrder();
@@ -134,7 +129,7 @@ describe("Phase 2 — Tree wrappers (TransformTree, RenderTree)", () => {
     expect(rAll.has(a) && rAll.has(b) && rAll.has(d)).toBe(true);
   });
 
-  test("TransformTree ensures Transform is present; RenderTree ensures RenderNode is present", () => {
+  test("each tree ensures its own node component; no implicit Transform required", () => {
     const world = initWorld({ initialCapacity: 32 });
     const tTree = new TransformTree(world);
     const rTree = new RenderTree(world);
@@ -142,20 +137,22 @@ describe("Phase 2 — Tree wrappers (TransformTree, RenderTree)", () => {
     const p = world.createEntity();
     const c = world.createEntity();
 
-    // Before addChild, these entities have no components. addChild should ensure required components.
+    // Before addChild, these entities have no components.
     tTree.addChild(p, c);
     rTree.addChild(p, c);
 
-    const tStore = world.store("Transform");
     const tnStore = world.store("TransformNode");
     const rnStore = world.store("RenderNode");
 
-    expect(tStore.has(p)).toBe(true);
-    expect(tStore.has(c)).toBe(true);
     expect(tnStore.has(p)).toBe(true);
     expect(tnStore.has(c)).toBe(true);
     expect(rnStore.has(p)).toBe(true);
     expect(rnStore.has(c)).toBe(true);
+
+    // TransformTree no longer guarantees 'Transform' is present.
+    const tStore = world.store("Transform");
+    expect(tStore.has(p)).toBe(false);
+    expect(tStore.has(c)).toBe(false);
   });
 
   test("reparent throws on self-parent; remove is a no-op for non-node entities", () => {
