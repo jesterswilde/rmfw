@@ -1,3 +1,4 @@
+// /src/ecs/core/componentStore.ts
 import type { ComponentMeta, FieldMeta, MutableColumnsOf, ColumnsOf, KeysOf } from "../interfaces";
 
 const GROW = (n: number) => Math.max(2, n << 1);

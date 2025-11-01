@@ -1,7 +1,7 @@
+// /src/ecs/core/entityAllocator.ts
 import type { Entity } from "../interfaces";
 
 const GROW = (n: number) => Math.max(2, n << 1);
-
 export class EntityAllocator {
   private _dense: number[] = [];
   private _sparse: Int32Array;

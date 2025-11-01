@@ -1,3 +1,5 @@
+// /src/ecs/core/world.ts
+
 import type { Def, HierarchyLike, MetaOf, ComponentMeta, FieldMeta, Entity } from "../interfaces";
 import { ComponentStore, type StoreOf, type StoreView } from "./componentStore";
 import { EntityAllocator } from "./entityAllocator";

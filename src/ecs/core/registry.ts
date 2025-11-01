@@ -1,4 +1,4 @@
-// src/ecs/registry.ts
+// src/ecs/core/registry.ts
 // Registry with self-describing component metadata (ordered fields, defaults, link flags)
 
 import { NONE, World } from "./index.js";
