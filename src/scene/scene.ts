@@ -1,33 +1,46 @@
-import { ShapePool } from '../pools/entity.js';
-import { Mat34Pool } from '../pools/matrix.js';
-import { NodeTree } from '../pools/nodeTree.js';
-import { parseScene } from '../systems/loadScene.js';
-import { repack } from '../systems/repack.js';
+// src/scene/scene.ts
+// Phase 4 — ECS-backed Scene wired to GPU Bridge (uses initWorld + new systems/loader)
+
 import { load } from '../utils/util.js';
-import { ComputeRenderer } from './computeRenderer.js';
-import { QuadBlitPass } from './quadBlit.js';
-import { propagateTransforms } from '../systems/propegatTransforms.js';
 import type { IView, SceneViews, ViewGPU } from './interface.js';
 
+import { ComputeRenderer } from './computeRenderer.js';
+import { QuadBlitPass } from './quadBlit.js';
+
+// --- ECS + Bridge ---
+import { initWorld, TransformMeta, RenderNodeMeta, ShapeLeafMeta, OperationMeta } from '../ecs/registry.js';
+import { loadScene as loadEcsScene } from '../ecs/load.js';
+import { propagateTransforms, PropagateWorkspace } from '../ecs/systems/propagateTransforms.js';
+
+import { GpuBridge } from '../ecs/gpu/bridge.js';
+import { TransformsChannel } from '../ecs/gpu/transformsChannel.js';
+import { RenderChannel } from '../ecs/gpu/renderChannel.js';
+
+type DfsTreeLike = { order: Int32Array; epoch: number };
 
 export class Scene {
   private _device: GPUDevice;
 
-  private _bindGroupLayout: GPUBindGroupLayout; // scene @group(2)
+  // Scene @group(2) built from the bridge
+  private _sceneLayout!: GPUBindGroupLayout;
   private _sceneBG!: GPUBindGroup;
 
-  private _nodes: NodeTree;
-  private _entities: ShapePool;
-  private _matrices: Mat34Pool;
+  // ECS state
+  private _world = initWorld();
+  private _tTree!: DfsTreeLike;
+  private _rTree!: DfsTreeLike;
+  private _propWorkspace: PropagateWorkspace | null = null 
 
-  private _nodesVersion = -1;
-  private _entitiesVersion = -1;
-  private _matricesVersion = -1;
+  // GPU bridge
+  private bridge = new GpuBridge();
+  private transformsChan = new TransformsChannel();
+  private renderChan = new RenderChannel();
 
+  // Renderer
   private _compute: ComputeRenderer;
 
   private _time = 0;
-  private _numObjs = 0; // will be set from _entities.size after load
+  private _numRows = 0; // render rows (including implicit root row 0)
 
   private _views: SceneViews = new Map<number, { view: IView, gpu: ViewGPU }>();
 
@@ -51,32 +64,43 @@ export class Scene {
     const align = Math.max(256, device.limits.minUniformBufferOffsetAlignment || 256);
     this._uboStride = align;
 
-    // Pools
-    this._nodes = new NodeTree(256);
-    this._entities = new ShapePool(256);
-    this._matrices = new Mat34Pool(256);
-    this._nodes.createGPUBuffer(device);
-    this._entities.createGPUBuffer(device);
-    this._matrices.createGPUBuffer(device);
-    this._nodesVersion = this._nodes.version;
-    this._entitiesVersion = this._entities.version;
-    this._matricesVersion = this._matrices.version;
+    // Register channels at fixed slots (trees are attached after load):
+    // @group(2)/binding(0) -> Render rows
+    this.bridge.register({
+      group: 2,
+      binding: 0,
+      channel: this.renderChan,
+      argsProvider: (w) => ({
+        order: this._rTree?.order ?? new Int32Array(0),
+        orderEpoch: this._rTree?.epoch ?? -1,
+        shapeStore: w.storeOf(ShapeLeafMeta),
+        opStore: w.storeOf(OperationMeta),
+        renderStore: w.storeOf(RenderNodeMeta),
+        transformStore: w.storeOf(TransformMeta),
+        transformOrder: this._tTree?.order ?? new Int32Array(0),
+        transformOrderEpoch: this._tTree?.epoch ?? -1,
+      }),
+    });
 
-    // Scene storage layout (@group(2))
-    this._bindGroupLayout = device.createBindGroupLayout({
-      entries: [
-        { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } }, // entities/shapes
-        { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } }, // nodes
-        { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } }, // transforms
-      ],
+    // @group(2)/binding(2) -> Inverse-world transforms
+    this.bridge.register({
+      group: 2,
+      binding: 2,
+      channel: this.transformsChan,
+      argsProvider: (w) => ({
+        order: this._tTree?.order ?? new Int32Array(0),
+        orderEpoch: this._tTree?.epoch ?? -1,
+        store: w.storeOf(TransformMeta),
+      }),
+    });
+
+    // Scene layout & bind group from bridge
+    this._sceneLayout = device.createBindGroupLayout({
+      entries: this.bridge.layoutEntriesFor(2),
     });
     this._sceneBG = this._device.createBindGroup({
-      layout: this._bindGroupLayout,
-      entries: [
-        { binding: 0, resource: { buffer: this._entities.getGPUBuffer()! } },
-        { binding: 1, resource: { buffer: this._nodes.getGPUBuffer()! } },
-        { binding: 2, resource: { buffer: this._matrices.getGPUBuffer()! } },
-      ],
+      layout: this._sceneLayout,
+      entries: this.bridge.bindGroupEntriesFor(2),
     });
 
     // Frame UBO & BG (@group(1)) — allocate dynamic buffer with 256-byte slices
@@ -88,7 +112,7 @@ export class Scene {
     // Compute: include frame+scene layouts
     this._compute = new ComputeRenderer(wgslPath);
     this._compute.init().then(() => {
-      this._compute.buildWithScene(this._bindGroupLayout, entryPoint);
+      this._compute.buildWithScene(this._sceneLayout, entryPoint);
       this._frameBG = device.createBindGroup({
         layout: this._compute.getLayouts().frame,
         entries: [{ binding: 0, resource: { buffer: this._frameUBO } }],
@@ -99,55 +123,50 @@ export class Scene {
     // Blit is created on first registerView (needs canvas format)
   }
 
-  async loadScene(sceneLocation: string) {
+  // ✅ Keep this method public so main.ts can call scene.loadScene(...)
+  public async loadScene(sceneLocation: string): Promise<void> {
+    // Fetch JSON, then load into ECS using your loader (v1)
     const sceneObj = await load(sceneLocation, 'json');
 
-    parseScene(sceneObj, this._nodes, this._entities, this._matrices);
-    propagateTransforms(this._nodes, this._matrices);
-    //Repack doesn't carry over dirty flags so it's important that propegation happens first
-    repack(this._nodes, this._entities, this._matrices);
+    const { trees } = loadEcsScene(this._world, sceneObj);
+    // Build tree refs (names must match registry/trees)
+    const tTree = trees.get('TransformNode') as DfsTreeLike | undefined;
+    const rTree = trees.get('RenderNode') as DfsTreeLike | undefined;
+    if (!tTree || !rTree) {
+      throw new Error('Missing TransformNode or RenderNode trees after load');
+    }
+    this._tTree = tTree;
+    this._rTree = rTree;
 
-    this._nodesVersion = this._nodes.version;
-    this._entitiesVersion = this._entities.version;
-    this._matricesVersion = this._matrices.version;
+    // Initial propagation (writes world/invWorld & bumps row versions)
+    propagateTransforms(this._world, this._propWorkspace);
 
-    this._numObjs = this._entities.size;
+    // First sync will size buffers and mark-all-dirty
+    this.bridge.syncAll(this._world, this._device, this._device.queue);
 
+    // Rebuild scene bind group in case buffers resized
     this._sceneBG = this._device.createBindGroup({
-      layout: this._bindGroupLayout,
-      entries: [
-        { binding: 0, resource: { buffer: this._entities.getGPUBuffer()! } },
-        { binding: 1, resource: { buffer: this._nodes.getGPUBuffer()! } },
-        { binding: 2, resource: { buffer: this._matrices.getGPUBuffer()! } },
-      ],
+      layout: this._sceneLayout,
+      entries: this.bridge.bindGroupEntriesFor(2),
     });
+
+    // rows = render DFS + implicit root
+    this._numRows = (this._rTree.order.length | 0) + 1;
   }
 
   update(dt: number) {
     this._time += dt;
 
-    const changed =
-      this._nodes.version !== this._nodesVersion ||
-      this._entities.version !== this._entitiesVersion ||
-      this._matrices.version !== this._matricesVersion;
+    // Sync GPU buffers (may recreate)
+    this.bridge.syncAll(this._world, this._device, this._device.queue);
 
-    if (changed) {
-      this._sceneBG = this._device.createBindGroup({
-        layout: this._bindGroupLayout,
-        entries: [
-          { binding: 0, resource: { buffer: this._entities.getGPUBuffer()! } },
-          { binding: 1, resource: { buffer: this._nodes.getGPUBuffer()! } },
-          { binding: 2, resource: { buffer: this._matrices.getGPUBuffer()! } },
-        ],
-      });
-      this._nodesVersion = this._nodes.version;
-      this._entitiesVersion = this._entities.version;
-      this._matricesVersion = this._matrices.version;
+    // Rebuild BG (cheap; guarantees correctness if any buffer resized)
+    this._sceneBG = this._device.createBindGroup({
+      layout: this._sceneLayout,
+      entries: this.bridge.bindGroupEntriesFor(2),
+    });
 
-      this._numObjs = this._entities.size;
-    }
-
-    propagateTransforms(this._nodes, this._matrices)
+    if (this._rTree) this._numRows = (this._rTree.order.length | 0) + 1;
   }
 
   registerView(view: IView) {
@@ -193,7 +212,6 @@ export class Scene {
     if (!e) return;
     e.gpu.outTex.destroy();
     this._views.delete(view.id);
-    // Note: we don't reshuffle existing offsets; each view keeps its slice.
   }
 
   onViewResize(view: IView) {
@@ -224,8 +242,7 @@ export class Scene {
   }
 
   render(workgroupSize = 8) {
-    if (!this._compute.pipelineHandle) 
-      return;
+    if (!this._compute.pipelineHandle) return;
 
     const enc = this._device.createCommandEncoder();
 
@@ -246,7 +263,7 @@ export class Scene {
     // 2) Compute (bind 0=out, 1=frame, 2=scene)
     {
       const pass = enc.beginComputePass();
-      pass.setPipeline(this._compute.pipelineHandle);
+      pass.setPipeline(this._compute.pipelineHandle!);
 
       for (const { view, gpu } of this._views.values()) {
         if (!gpu.outBG) {
@@ -257,13 +274,12 @@ export class Scene {
         }
         if (!gpu.outBG) continue;
 
-        // ---- Build and upload per-view Frame (128B) into 256B dynamic slice ----
-        this.writeFrameSlice(gpu.uboOffset, gpu.width, gpu.height, this._time, this._numObjs, view.getCamera());
+        // ---- Build and upload per-view Frame (96B payload into 256B slice) ----
+        this.writeFrameSlice(gpu.uboOffset, gpu.width, gpu.height, this._time, this._numRows, view.getCamera());
 
         // bind groups
         pass.setBindGroup(0, gpu.outBG);
-        // dynamic offset must be multiple of minUniformBufferOffsetAlignment (we enforce in ctor)
-        pass.setBindGroup(1, this._frameBG, [gpu.uboOffset]);
+        pass.setBindGroup(1, this._frameBG, [gpu.uboOffset]); // dynamic offset aligned
         pass.setBindGroup(2, this._sceneBG);
 
         // dispatch for full texture size
@@ -277,7 +293,7 @@ export class Scene {
 
     // 3) Blit to canvas
     for (const { gpu } of this._views.values()) {
-      this._blit.encode(enc, gpu.context, gpu.blitBG);
+      this._blit.encode(enc, gpu.context!, gpu.blitBG!);
     }
 
     this._device.queue.submit([enc.finish()]);
@@ -285,42 +301,31 @@ export class Scene {
 
   // ---- internals ------------------------------------------------------------
   /** Pack FramePacked: 6 x vec4 = 96 bytes */
-private writeFrameSlice(
+  private writeFrameSlice(
     offset: number,
     width: number,
     height: number,
     time: number,
-    numShapes: number,
-    cameraCols16: Float32Array | number[], // 16 floats, column-major
+    numRows: number,
+    _cameraCols16: Float32Array | number[],
   ) {
     const SIZE = 96; // 6 * 16B
     const buf = new ArrayBuffer(SIZE);
     const u32 = new Uint32Array(buf);
     const f32 = new Float32Array(buf);
 
-    // u0 : vec4<u32> @ 0..15
-    u32[0] = width >>> 0;    // x = res.x
-    u32[1] = height >>> 0;   // y = res.y
-    u32[2] = numShapes >>> 0;// z = numShapes
-    u32[3] = 0;              // w = flags/unused
+    // u0 : vec4<u32>
+    u32[0] = width >>> 0;
+    u32[1] = height >>> 0;
+    u32[2] = numRows >>> 0; // rows in render buffer (including implicit root at row 0)
+    u32[3] = 0;
 
-    // f0 : vec4<f32> @ 16..31 (float index 4..7)
-    f32[4] = time;           // x = time
+    // f0 : vec4<f32>
+    f32[4] = time;
 
-    //// camera columns @ 32..95 (float index 8..23)
-    //const cam = Array.from(cameraCols16 as any).slice(0, 16); // guard length
-    //// c0
-    //new Float32Array(buf, 32, 4).set(cam.slice(0, 4));
-    //// c1
-    //new Float32Array(buf, 48, 4).set(cam.slice(4, 8));
-    //// c2
-    //new Float32Array(buf, 64, 4).set(cam.slice(8, 12));
-    //// c3
-    //new Float32Array(buf, 80, 4).set(cam.slice(12, 16));
-
+    // Camera columns currently unused by WGSL; keep zeros for future hookup.
     this._device.queue.writeBuffer(this._frameUBO, offset, buf);
   }
-
 
   private createPerViewGPU(width: number, height: number): ViewGPU {
     const outTex = this._device.createTexture({

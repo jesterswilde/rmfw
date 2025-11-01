@@ -1,6 +1,6 @@
 // src/ecs/systems/propagateTransforms.ts
 
-import { World } from "../core.js";
+import { World } from "../index.js";
 import { TransformMeta, TransformNodeMeta } from "../registry.js";
 
 const NONE = -1;
@@ -62,7 +62,7 @@ export class PropagateWorkspace {
   }
 }
 
-export function propagateTransforms(world: World, workspace?: PropagateWorkspace) {
+export function propagateTransforms(world: World, workspace: PropagateWorkspace | null) {
   const ws = workspace ?? new PropagateWorkspace();
 
   // StoreView (read/write fields safely)

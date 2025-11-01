@@ -1,11 +1,5 @@
 #!/usr/bin/env node
 // scripts/sceneBuilder.ts
-//
-// Skeleton scene builder for experimenting with the rmfw ECS.
-// Run with: `node --loader ts-node/esm scripts/sceneBuilder.ts`
-// (or your preferred TypeScript runner). Adjust entity/component setup below
-// to craft different scenes, then re-run to generate a fresh JSON save.
-
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -24,7 +18,7 @@ import { saveScene } from "../src/ecs/save.js";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-const OUTPUT_PATH = resolve(__dirname, "../scenes/sample-scene.json");
+const OUTPUT_PATH = resolve(__dirname, "../assets/scene.json");
 
 function ensureDirectoryFor(filePath: string) {
   mkdirSync(dirname(filePath), { recursive: true });
@@ -77,9 +71,9 @@ async function main() {
   renderTree.addChild(subtractNode, box);
 
   // Optional: position entities by editing transform translations.
-  setTranslation(world, root, [0, 0, 0]);
-  setTranslation(world, sphere, [0, 0, 0]);
-  setTranslation(world, subtractNode, [0, 0, 0]);
+  setTranslation(world, root, [1, 0, 0]);
+  setTranslation(world, sphere, [-1, 0, 0]);
+  setTranslation(world, subtractNode, [0, 1, 0]);
   setTranslation(world, box, [0.5, 0, 0]);
 
   // --- Shape / operation payload ------------------------------------------
@@ -87,11 +81,6 @@ async function main() {
   shapeStore.add(sphere, {
     shapeType: 1, // customize per renderer (e.g. 1 = sphere)
     p0: 0.75,     // radius or renderer-defined param slot
-    p1: 0,
-    p2: 0,
-    p3: 0,
-    p4: 0,
-    p5: 0,
   });
 
   const ops = world.storeOf(OperationMeta);
@@ -103,9 +92,6 @@ async function main() {
     p0: 0.6,
     p1: 0.25,
     p2: 0.25,
-    p3: 0,
-    p4: 0,
-    p5: 0,
   });
 
   // Trigger a deterministic DFS order for both hierarchies (optional if no

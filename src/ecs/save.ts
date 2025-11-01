@@ -1,27 +1,10 @@
 // rmfw — Scene Saver JSON v1
-import { World } from "../ecs/core.js";
 import { Transform, TransformNode, RenderNode, ShapeLeaf, Operation } from "../ecs/registry.js";
-
-const NONE = -1;
+import { NONE, type RmfwComponentBlockV1, type RmfwSceneV1 } from "./interfaces.js";
+import type { World } from "./core/world.js";
 
 const isLinkField = (f: { readonly key: string; readonly link?: boolean }): boolean =>
   f.link === true;
-
-
-export interface RmfwComponentBlockV1 {
-  name: string;
-  present: number[];        // length = entityCount (0/1)
-  fieldOrder?: string[];    // optional; aligns with columns
-  columns?: number[][];     // compact, length = count(present==1)
-}
-
-export interface RmfwSceneV1 {
-  version: 1;
-  project: "rmfw";
-  entityCount: number;
-  components: RmfwComponentBlockV1[];
-  roots?: { transform?: number[]; render?: number[] };
-}
 
 const ALL_COMPONENTS = [
   Transform.meta,

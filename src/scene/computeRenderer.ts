@@ -1,3 +1,4 @@
+// src/scene/computeRenderer.ts
 import { GPUDeviceManager } from "../gpu/device.js";
 import { ShaderCache } from "../gpu/shaders.js";
 
@@ -27,7 +28,7 @@ export class ComputeRenderer {
         {
           binding: 0,
           visibility: GPUShaderStage.COMPUTE,
-          buffer: { type: "uniform", hasDynamicOffset: true, minBindingSize: 160},
+          buffer: { type: "uniform", hasDynamicOffset: true, minBindingSize: 160 }, // 96B payload; 160 gives headroom
         },
       ],
     });

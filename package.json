@@ -10,7 +10,7 @@
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
     "bundle": "node scripts/bundle.mjs",
-    "makeWorld": "node --loader ts-node/esm scripts/sceneBuilder.ts"
+    "makeWorld": "npx tsx scripts/sceneBuilder.ts"
   },
   "author": "",
   "license": "ISC",

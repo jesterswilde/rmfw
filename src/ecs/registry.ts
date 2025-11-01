@@ -1,9 +1,10 @@
 // src/ecs/registry.ts
 // Registry with self-describing component metadata (ordered fields, defaults, link flags)
 
-import { World, defineMeta, type Def, type ComponentMeta } from "./core.js";
+import { defineMeta } from "./index.js";
+import { NONE, type Def } from "./interfaces.js";
+import { World } from "./core/world.js";
 
-const NONE = -1;
 
 // ----- Component metas (each field is a scalar = 1 column) -----
 
@@ -95,6 +96,8 @@ export const ShapeLeafMeta = defineMeta({
     { key: "p3",        ctor: Float32Array, default: 0 },
     { key: "p4",        ctor: Float32Array, default: 0 },
     { key: "p5",        ctor: Float32Array, default: 0 },
+    { key: "p6",        ctor: Float32Array, default: 0 },
+    { key: "p7",        ctor: Float32Array, default: 0 },
   ] as const,
 });
 
