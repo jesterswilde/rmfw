@@ -1,7 +1,7 @@
 // tests/ecs/gpu/bridge.bufferResize.test.ts
 // Buffer resize when DFS length grows/shrinks → recreates buffer + full rewrite once, no duplicate uploads.
 
-import { initWorld, TransformMeta, TransformNode } from "../../../src/ecs/registry.js";
+import { initWorld, TransformMeta, TransformNode } from "../../../src/ecs/core/registry.js";
 import { TransformTree } from "../../../src/ecs/trees.js";
 import { propagateTransforms, PropagateWorkspace } from "../../../src/ecs/systems/propagateTransforms.js";
 import { GpuBridge, TransformsChannel } from "../../../src/ecs/gpu/index.js";

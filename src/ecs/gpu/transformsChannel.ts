@@ -1,7 +1,7 @@
 // src/ecs/gpu/transformsChannel.ts
 // Packs inverse-world transforms in DFS order with incremental uploads.
 
-import type { StoreView, World } from "../core.js";
+import type { StoreView, World } from "../core/index.js";
 import { BaseChannel, BYTES_PER_F32, type DfsOrder } from "./baseChannel.js";
 
 /**

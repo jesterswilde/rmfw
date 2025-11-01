@@ -17,7 +17,7 @@ import {
   RenderNodeMeta,
   ShapeLeafMeta,
   OperationMeta,
-} from "../src/ecs/registry.js";
+} from "../src/ecs/core/registry.js";
 import { buildAllHierarchyTrees } from "../src/ecs/trees.js";
 import { saveScene } from "../src/ecs/save.js";
 

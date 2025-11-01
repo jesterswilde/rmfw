@@ -5,11 +5,14 @@ import {
   OperationMeta,
   RenderNodeMeta,
   TransformMeta,
-} from "../../../src/ecs/registry";
+} from "../../../src/ecs/core/registry";
 import { buildAllHierarchyTrees } from "../../../src/ecs/trees";
 import { GpuBridge } from "../../../src/ecs/gpu/bridge";
 import { RenderChannel } from "../../../src/ecs/gpu/renderChannel";
 import { RenderKind } from "../../../src/interfaces";
+import { installWebGPUShims } from "../../utils/webgpu.mock";
+
+installWebGPUShims()
 
 // Minimal GPU mocks
 class MockGPUBuffer {

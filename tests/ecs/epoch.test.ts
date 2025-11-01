@@ -1,5 +1,5 @@
 // tests/epochs.test.ts
-import { initWorld } from "../../src/ecs/registry";
+import { initWorld } from "../../src/ecs/core/registry";
 
 describe("Epochs (Phase 1 semantics)", () => {
   test("storeEpoch increments on add/update/remove; rowVersion increments per-row", () => {

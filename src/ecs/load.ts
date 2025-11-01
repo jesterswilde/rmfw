@@ -1,7 +1,7 @@
 // src/ecs/load.ts
 // rmfw — Scene Loader (JSON v1, fully dynamic & meta-driven)
 
-import { World } from "../ecs/core.js";
+import { World } from "./core/index.js";
 import { buildAllHierarchyTrees } from "./trees.js";
 
 const NONE = -1;

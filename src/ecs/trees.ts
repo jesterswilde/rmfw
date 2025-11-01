@@ -1,13 +1,13 @@
 // src/ecs/trees.ts
 
-import { World, type StoreOf } from "../ecs/core.js";
-import { TransformMeta } from "./registry.js";
+import { TransformMeta } from "./core/registry.js";
 import {
   isOrthonormal3x3,
   inverseRigid3x4_into,
   inverseGeneral3x4_into,
   mulRigid3x4_into,
 } from "./math.js";
+import type { StoreOf, World } from "./core/index.js";
 
 const NONE = -1;
 

@@ -1,6 +1,6 @@
 // tests/ecs/hierarchyDetection.test.ts
-import { defineMeta, World } from "../../src/ecs/core";
-import { initWorld } from "../../src/ecs/registry";
+import { World } from "../../src/ecs/core/index.js";
+import { defineMeta, initWorld } from "../../src/ecs/core/registry.js";
 import { buildAllHierarchyTrees, isHierarchyStore } from "../../src/ecs/trees";
 
 describe("Hierarchy store detection", () => {

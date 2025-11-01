@@ -1,7 +1,7 @@
 // tests/ecs/reparent.preserveWorld.test.ts
 // Reparenting a node preserves its world transform by baking a new local.
 
-import { initWorld, TransformMeta, TransformNodeMeta } from "../../src/ecs/registry.js";
+import { initWorld, TransformMeta, TransformNodeMeta } from "../../src/ecs/core/registry.js";
 import { TransformTree } from "../../src/ecs/trees.js";
 import { propagateTransforms } from "../../src/ecs/systems/propagateTransforms.js";
 

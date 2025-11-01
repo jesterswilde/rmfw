@@ -1,8 +1,8 @@
 // src/ecs/tests/propagateTransforms.test.ts
 // Jest tests for implicit dirty cascade and world/inverse correctness.
 
-import { initWorld, TransformMeta, TransformNodeMeta } from "../../src/ecs/registry.js";
-import { World } from "../../src/ecs/core.js";
+import { initWorld, TransformMeta, TransformNodeMeta } from "../../src/ecs/core/registry.js";
+import { World } from "../../src/ecs/core/index.js";
 import { propagateTransforms } from "../../src/ecs/systems/propagateTransforms.js";
 
 const NONE = -1;

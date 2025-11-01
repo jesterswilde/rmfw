@@ -1,4 +1,5 @@
-import { ComponentStore, type ComponentMeta } from "../../src/ecs/core";
+import { ComponentStore } from "../../src/ecs/core";
+import { ComponentMeta } from "../../src/ecs/interfaces";
 
 const DummyMeta: ComponentMeta = {
   name: "Dummy",

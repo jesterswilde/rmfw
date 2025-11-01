@@ -1,5 +1,5 @@
 // tests/ecs/worldRegistry.test.ts
-import { initWorld, Transform, TransformMeta, TransformNode, TransformNodeMeta, RenderNode, ShapeLeaf, Operation } from "../../src/ecs/registry";
+import { initWorld, Transform, TransformMeta, TransformNode, TransformNodeMeta, RenderNode, ShapeLeaf, Operation } from "../../src/ecs/core/registry";
 
 describe("World + Registry", () => {
   test("initWorld registers all components and store() retrieves them", () => {

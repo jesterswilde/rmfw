@@ -1,6 +1,6 @@
 // src/ecs/gpu/renderChannel.ts
 
-import type { StoreView, World } from "../core.js";
+import type { StoreView, World } from "../core/index.js";
 import { BaseChannel, BYTES_PER_F32, type DfsOrder } from "./baseChannel.js";
 import { RenderKind } from "../../interfaces.js";
 import {
@@ -8,7 +8,7 @@ import {
   OperationMeta,
   RenderNodeMeta,
   TransformMeta,
-} from "../registry.js";
+} from "../core/registry.js";
 
 type MetaName<M extends { name: string }> = M["name"];
 type MetaKeys<M extends { fields: readonly { key: string }[] }> =

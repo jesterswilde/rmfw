@@ -1,9 +1,17 @@
 // src/ecs/registry.ts
 // Registry with self-describing component metadata (ordered fields, defaults, link flags)
 
-import { World, defineMeta, type Def, type ComponentMeta } from "./core.js";
+import { NONE, World } from "./index.js";
+import type { FieldMeta, Def } from "../interfaces.js";
 
-const NONE = -1;
+
+/** Factory to preserve literal name & field keys. */
+export function defineMeta<
+  const N extends string,
+  const F extends readonly FieldMeta<string>[]
+>(meta: Readonly<{ name: N; fields: F }>) {
+  return meta as Readonly<{ name: N; fields: F }>;
+}
 
 // ----- Component metas (each field is a scalar = 1 column) -----
 

@@ -1,7 +1,6 @@
 // tests/ecs/trees.edge.test.ts
-import { initWorld } from "../../src/ecs/registry";
+import { initWorld, defineMeta } from "../../src/ecs/core/registry";
 import { buildAllHierarchyTrees, TransformTree } from "../../src/ecs/trees";
-import { defineMeta } from "../../src/ecs/core";
 
 const NONE = -1;
 

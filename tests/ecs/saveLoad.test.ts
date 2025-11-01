@@ -1,5 +1,5 @@
 // tests/ecs/saveload.test.ts
-import { initWorld, TransformMeta } from "../../src/ecs/registry";
+import { initWorld, TransformMeta } from "../../src/ecs/core/registry";
 import { saveScene } from "../../src/ecs/save";
 import { loadScene } from "../../src/ecs/load";
 import { buildAllHierarchyTrees } from "../../src/ecs/trees";

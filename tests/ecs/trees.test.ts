@@ -1,5 +1,5 @@
 // tests/ecs/trees.test.ts
-import { initWorld } from "../../src/ecs/registry";
+import { initWorld } from "../../src/ecs/core/registry";
 import { TransformTree, RenderTree } from "../../src/ecs/trees";
 
 const NONE = -1;

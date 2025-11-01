@@ -1,6 +1,6 @@
 // rmfw — Scene Saver JSON v1
-import { World } from "../ecs/core.js";
-import { Transform, TransformNode, RenderNode, ShapeLeaf, Operation } from "../ecs/registry.js";
+import { World } from "./core/index.js";
+import { Transform, TransformNode, RenderNode, ShapeLeaf, Operation } from "./core/registry.js";
 
 const NONE = -1;
 

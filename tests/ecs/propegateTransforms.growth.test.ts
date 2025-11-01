@@ -2,8 +2,8 @@
 // Ensures propagateTransforms handles depth > 64 by growing its preallocated stacks
 // and still computes correct world transforms for all descendants.
 
-import { initWorld, TransformMeta, TransformNodeMeta } from "../../src/ecs/registry.js";
-import { World } from "../../src/ecs/core.js";
+import { initWorld, TransformMeta, TransformNodeMeta } from "../../src/ecs/core/registry.js";
+import { World } from "../../src/ecs/core/index.js";
 import { propagateTransforms, PropagateWorkspace } from "../../src/ecs/systems/propagateTransforms.js";
 
 const NONE = -1;
