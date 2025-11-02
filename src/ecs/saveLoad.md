@@ -1,8 +1,8 @@
 # Overview
-Scene persistence uses a matched pair of functions. `saveScene` walks the world and writes each registered component into a compact JSON structure, while `loadScene` rebuilds entities and components from that payload and restores tree order. Together they give the save-and-restore loop used by the editor.
+Does what it says on the tin, saves and loads files into the world. Currently saved to JSON format. `saveScene` walks the world and writes each registered component into a compact JSON structure, while `loadScene` rebuilds entities and components from that payload and restores tree order. Together they give the save-and-restore loop used by the editor.
 
 ## API
-### `saveScene(world, opts?)`
+### `saveScene(world)`
 - Collects all entities currently alive and remaps sparse ids to dense indices for stable output.
 - Iterates the known component metas (`Transform`, `TransformNode`, `RenderNode`, `ShapeLeaf`, `Operation`), emitting a block per component with presence masks and column-major data.
 - Drops all-default columns when `opts.dropDefaultColumns` is true while keeping the presence mask so loaders can still allocate rows.
@@ -28,7 +28,6 @@ Scene persistence uses a matched pair of functions. `saveScene` walks the world 
 - Loading a valid `RmfwSceneV1` reproduces the original entity count, component rows, and hierarchy order.
 - Presence masks with no columns still produce rows filled from meta defaults.
 - Unknown component names are ignored without throwing.
-- All root hint formats (legacy pair, map form, none) rebuild hierarchies correctly.
 - Link columns that were `NONE` in the save remain `-1` after remapping.
 - Pre-allocation grows the world stores when needed and keeps all loaded data intact after resizing.
 
