@@ -1,5 +1,7 @@
 # Overview
-`EntityAllocator` hands out stable entity ids, keeps sparse and dense mappings in sync, grows its buffers as needed, and bumps a per-entity epoch whenever structure changes so systems can detect updates.
+`EntityAllocator` Handled stable entity IDs. keeps sparse and dense mappings in sync, grows its buffers as needed, and bumps a per-entity epoch whenever structure changes so systems can detect updates.
+
+It is mostly used internally by World
 
 ## API
 - `constructor(initialCapacity)` – initialises sparse mapping, free list, and epoch arrays sized for the requested capacity (minimum 1).

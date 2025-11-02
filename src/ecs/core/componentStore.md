@@ -1,5 +1,5 @@
 # Overview
-`ComponentStore` holds the data for one component type using parallel typed arrays. It tracks which entity owns each dense row, keeps mapping tables so lookups stay quick, grows as needed, and offers helpers to add, change, or remove component rows while keeping version counters up to date.
+`ComponentStore` holds the data for a component using SoA (Structure of Array) typed arrays. It is responsible for mapping an entity to that component's data lives in the SoA. It offers helpers to add, change, or remove component rows while keeping version counters (epochs) up to date.
 
 ## API
 - `constructor(meta, initialCapacity?)` – builds typed columns for every field declared in the meta, primed with the requested capacity (default 256).

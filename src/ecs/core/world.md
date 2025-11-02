@@ -1,5 +1,5 @@
 # Overview
-The `World` is the central hub for the ECS runtime. It owns the entity allocator, registers component stores only when needed, and keeps tree helpers in sync so hierarchies stay tidy. Systems ask the `World` to create and destroy entities, fetch component stores, and perform safe cleanup that respects protected roots.
+The `World` is the central hub for the ECS runtime. It owns the entity allocator, registers component stores, and keeps tree helpers in sync so hierarchies stay tidy. Systems ask the `World` to create and destroy entities, fetch component stores.
 
 ## API
 - `constructor(cfg?: WorldConfig)` – creates a world with an entity pool sized for the requested capacity (default 1024).
@@ -26,6 +26,8 @@ The `World` is the central hub for the ECS runtime. It owns the entity allocator
 - `destroyEntitySafe` detaches members from every registered hierarchy when asked to remove from trees.
 - Protected entities are rejected by `destroyEntitySafe` while `destroyEntity` still allows direct deletion when protection is removed.
 - Unregistering a hierarchy stops it from getting destroy callbacks.
+- Creating enough entities to resize the underlying structs works as expected
+- Creating and deleting MANY of entities is handled well
 
 ### Hierarchy Hooks
 - Registered hierarchies receive a remove callback before component teardown when `destroyEntitySafe` is used.

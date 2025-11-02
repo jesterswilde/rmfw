@@ -1,5 +1,5 @@
 # Overview
-The tree module connects ECS component stores into single-root hierarchies. `Tree` bootstraps paired data and node stores, creates a protected root entity, keeps a stable depth-first traversal order, and offers helpers to reparent or remove subtrees. `TransformTree` extends this by updating transform components so entities keep their world-space pose when their parent changes.
+The tree module connects 2 ECS component stores into single-root hierarchies. `Tree` bootstraps paired data and node stores, creates a protected root entity, keeps a stable depth-first traversal order, and offers helpers to reparent or remove subtrees. `TransformTree` extends this by updating transform components so entities keep their world-space pose when their parent changes.
 
 ## API
 ### Shared helpers
