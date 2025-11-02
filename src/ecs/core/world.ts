@@ -1,5 +1,4 @@
-// /src/ecs/core/world.ts
-
+// src/ecs/core/world.ts
 import type { Def, HierarchyLike, MetaOf, ComponentMeta, FieldMeta, Entity } from "../interfaces";
 import { ComponentStore, type StoreOf, type StoreView } from "./componentStore";
 import { EntityAllocator } from "./entityAllocator";
@@ -16,10 +15,26 @@ export class World {
 
   readonly entityEpoch: Uint32Array;
 
+  /** Entities that cannot be destroyed (e.g. tree roots). */
+  private readonly protectedEntities = new Set<number>();
+
   constructor(cfg: WorldConfig = {}) {
     const cap = cfg.initialCapacity ?? 1024;
     this.entities = new EntityAllocator(cap);
     this.entityEpoch = this.entities.entityEpoch;
+  }
+
+  /** Mark an entity as protected from deletion. */
+  protectEntity(entity: Entity) {
+    this.protectedEntities.add(entity | 0);
+  }
+  /** Remove protection from an entity. */
+  unprotectEntity(entity: Entity) {
+    this.protectedEntities.delete(entity | 0);
+  }
+  /** Query if an entity is protected from deletion. */
+  isEntityProtected(entity: Entity): boolean {
+    return this.protectedEntities.has(entity | 0);
   }
 
   /** Register a component definition (meta). */
@@ -27,9 +42,7 @@ export class World {
     const meta = def.meta;
     if (this._registry.has(meta.name))
       throw new Error(`Component '${meta.name}' already registered`);
-    const store = new ComponentStore(meta, initialCapacity) as StoreOf<
-      MetaOf<D>
-    >;
+    const store = new ComponentStore(meta, initialCapacity) as StoreOf<MetaOf<D>>;
     this._registry.set(meta.name, def);
     this._stores.set(meta.name, store);
     return store;
@@ -42,35 +55,20 @@ export class World {
     return store as StoreOf<M>;
   }
 
-  /** Strongly-typed lookup by meta object, returns slim StoreView for clean hovers. */
+  /** Strongly-typed lookup by meta object, returns slim StoreView */
   storeOf<const N extends string, const F extends readonly FieldMeta<string>[]>(
     meta: Readonly<{ name: N; fields: F }>
   ): StoreView<N, F[number]["key"]> {
-    const s = this.store(meta.name) as ComponentStore<
-      Readonly<{ name: N; fields: F }>
-    >;
-    // Narrow public surface to reduce hover noise:
+    const s = this.store(meta.name) as ComponentStore<Readonly<{ name: N; fields: F }>>;
     return {
       name: s.name,
       meta: s.meta,
-      get size() {
-        return s.size;
-      },
-      get capacity() {
-        return s.capacity;
-      },
-      get entityToDense() {
-        return s.entityToDense;
-      },
-      get denseToEntity() {
-        return s.denseToEntity;
-      },
-      get rowVersion() {
-        return s.rowVersion;
-      },
-      get storeEpoch() {
-        return s.storeEpoch;
-      },
+      get size() { return s.size; },
+      get capacity() { return s.capacity; },
+      get entityToDense() { return s.entityToDense; },
+      get denseToEntity() { return s.denseToEntity; },
+      get rowVersion() { return s.rowVersion; },
+      get storeEpoch() { return s.storeEpoch; },
       fields: () => s.fields() as any,
       has: (e) => s.has(e),
       denseIndexOf: (e) => s.denseIndexOf(e),
@@ -92,6 +90,26 @@ export class World {
     }
     this.entities.destroy(entity);
   }
+
+  /**
+   * Safely destroy an entity:
+   * - If removeFromTrees is true (default): detach from all registered hierarchies first.
+   * - Then remove from all component stores and free the entity id.
+   * Throws if the entity is protected (e.g., a tree root).
+   */
+  destroyEntitySafe(entity: Entity, removeFromTrees = true) {
+    const id = entity | 0;
+    if (this.protectedEntities.has(id)) {
+      throw new Error(`Cannot destroy protected entity ${id}`);
+    }
+    if (removeFromTrees) {
+      for (const h of this._hierarchies.values()) {
+        try { h.remove(id); } catch { /* ignore */ }
+      }
+    }
+    this.destroyEntity(id);
+  }
+
   /** Register a hierarchy view by component name (idempotent). */
   registerHierarchy(name: string, h: HierarchyLike) {
     this._hierarchies.set(name, h);
@@ -103,28 +121,6 @@ export class World {
   /** Iterate registered hierarchies (internal/testing). */
   forEachHierarchy(cb: (name: string, h: HierarchyLike) => void) {
     for (const [n, h] of this._hierarchies) cb(n, h);
-  }
-
-  /**
-   * Safely destroy an entity:
-   * - If removeFromTrees is true (default): detach from all registered hierarchies first.
-   * - Then remove from all component stores and free the entity id.
-   * If you pass false, it will skip the hierarchy detaches. Only do this if you know the entity
-   * is not part of a registered hierarchy (or you have already detached it).
-   */
-  destroyEntitySafe(entity: Entity, removeFromTrees = true) {
-    // 1) Optionally detach from hierarchies
-    if (removeFromTrees) {
-      for (const h of this._hierarchies.values()) {
-        try {
-          h.remove(entity);
-        } catch {
-          /* ignore */
-        }
-      }
-    }
-    // 2) Remove from all component stores (existing logic)
-    this.destroyEntity(entity);
   }
 
   /** @internal */
@@ -150,20 +146,14 @@ export class World {
     if (!driver) throw new Error(`Unknown component '${driverName}'`);
     for (let i = 1; i < requiredComponents.length; i++) {
       const compStore = this._stores.get(requiredComponents[i]!);
-      if (!compStore)
-        throw new Error(`Unknown component '${requiredComponents[i]}'`);
+      if (!compStore) throw new Error(`Unknown component '${requiredComponents[i]}'`);
       if (compStore.size < driver!.size) {
         driver = compStore;
         driverName = requiredComponents[i]!;
       }
     }
     if (!driver || driver.size === 0) {
-      return {
-        driver: driverName,
-        count: 0,
-        entities: new Int32Array(0),
-        rows: {},
-      };
+      return { driver: driverName, count: 0, entities: new Int32Array(0), rows: {} };
     }
 
     const compStores = requiredComponents.map((n) => this._stores.get(n)!);
@@ -183,10 +173,7 @@ export class World {
       for (let cI = 0; cI < compStores.length; cI++) {
         const comp = compStores[cI]!;
         const rowIndex = comp.denseIndexOf(entity!);
-        if (rowIndex < 0) {
-          ok = false;
-          break;
-        }
+        if (rowIndex < 0) { ok = false; break; }
         staged[cI] = rowIndex;
       }
       if (!ok) continue;
@@ -201,14 +188,8 @@ export class World {
 
     const entitiesView = entities.subarray(0, out);
     const rowsView: Record<string, Int32Array> = Object.create(null);
-    for (const name of requiredComponents)
-      rowsView[name] = rows[name]!.subarray(0, out);
+    for (const name of requiredComponents) rowsView[name] = rows[name]!.subarray(0, out);
 
-    return {
-      driver: driverName,
-      count: out,
-      entities: entitiesView,
-      rows: rowsView,
-    };
+    return { driver: driverName, count: out, entities: entitiesView, rows: rowsView };
   }
 }

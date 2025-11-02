@@ -2,7 +2,7 @@
 // rmfw — Scene Loader (JSON v1, fully dynamic & meta-driven)
 
 import { World } from "./core/index.js";
-import { buildAllHierarchyTrees } from "./trees.js";
+import { buildAllHierarchyTrees } from "./tree/tree.js";
 
 const NONE = -1;
 

@@ -1,7 +1,7 @@
 // src/ecs/systems/propagateTransforms.ts
 
 import { World } from "../core/index.js";
-import { TransformMeta, TransformNodeMeta } from "../core/registry.js";
+import { TransformMeta, TransformNodeMeta } from "../registry.js";
 
 const NONE = -1;
 const ORTHONORMAL_EPS = 1e-4;

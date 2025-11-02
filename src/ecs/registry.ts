@@ -1,8 +1,12 @@
-// src/ecs/core/registry.ts
+// src/ecs/registry.ts
 // Registry with self-describing component metadata (ordered fields, defaults, link flags)
 
-import { NONE, World } from "./index.js";
-import type { FieldMeta, Def } from "../interfaces.js";
+import { ShapeType } from "../entityDef.js";
+import { Op } from "../interfaces.js";
+import { NONE, World } from "./core/index.js";
+import type { FieldMeta, Def, InitFromMeta } from "./interfaces.js";
+import { TransformTree } from "./tree/transformTree.js";
+import { Tree } from "./tree/tree.js";
 
 
 /** Factory to preserve literal name & field keys. */
@@ -71,6 +75,26 @@ export const TransformMeta = defineMeta({
   ] as const,
 });
 
+/** Root object for Transform, fully typed to require all fields. */
+export const TransfromRoot: InitFromMeta<typeof TransformMeta> = {
+  // Local = Identity
+  local_r00: 1, local_r01: 0, local_r02: 0, local_tx: 0,
+  local_r10: 0, local_r11: 1, local_r12: 0, local_ty: 0,
+  local_r20: 0, local_r21: 0, local_r22: 1, local_tz: 0,
+
+  // World = Identity
+  world_r00: 1, world_r01: 0, world_r02: 0, world_tx: 0,
+  world_r10: 0, world_r11: 1, world_r12: 0, world_ty: 0,
+  world_r20: 0, world_r21: 0, world_r22: 1, world_tz: 0,
+
+  // Inverse = Identity
+  inv_r00: 1, inv_r01: 0, inv_r02: 0, inv_tx: 0,
+  inv_r10: 0, inv_r11: 1, inv_r12: 0, inv_ty: 0,
+  inv_r20: 0, inv_r21: 0, inv_r22: 1, inv_tz: 0,
+
+  dirty: 0,
+};
+
 export const TransformNodeMeta = defineMeta({
   name: "TransformNode",
   fields: [
@@ -93,7 +117,7 @@ export const RenderNodeMeta = defineMeta({
   ] as const,
 });
 
-export const ShapeLeafMeta = defineMeta({
+export const ShapeMeta = defineMeta({
   name: "ShapeLeaf",
   fields: [
     { key: "shapeType", ctor: Int32Array,   default: 0 }, // renderer interprets
@@ -106,6 +130,7 @@ export const ShapeLeafMeta = defineMeta({
   ] as const,
 });
 
+
 export const OperationMeta = defineMeta({
   name: "Operation",
   fields: [
@@ -113,19 +138,22 @@ export const OperationMeta = defineMeta({
   ] as const,
 });
 
+export const OpRoot: InitFromMeta<typeof OperationMeta> = {
+  opType: Op.ReduceUnion
+}
+
 // Convenient defs (typed)
 export const Transform:     Def<typeof TransformMeta>     = { meta: TransformMeta };
 export const TransformNode: Def<typeof TransformNodeMeta> = { meta: TransformNodeMeta };
 export const RenderNode:    Def<typeof RenderNodeMeta>    = { meta: RenderNodeMeta };
-export const ShapeLeaf:     Def<typeof ShapeLeafMeta>     = { meta: ShapeLeafMeta };
+export const ShapeLeaf:     Def<typeof ShapeMeta>     = { meta: ShapeMeta };
 export const Operation:     Def<typeof OperationMeta>     = { meta: OperationMeta };
 
 // ----- Registry setup helper -----
 export function initWorld(cfg?: { initialCapacity?: number }) {
   const world = new World({ initialCapacity: cfg?.initialCapacity ?? 1024 });
 
-  world.register(Transform,     256);
-  world.register(TransformNode, 256);
+  new TransformTree(world, TransformNodeMeta, TransfromRoot)
   world.register(RenderNode,    256);
   world.register(ShapeLeaf,     256);
   world.register(Operation,     256);

@@ -54,3 +54,8 @@ export type HierarchyLike = {
   /** Name for debugging (e.g., "TransformNode", "RenderNode") */
   componentName?: string;
 };
+
+/** Derive a strongly-typed init-object from a meta (all fields required, numeric). */
+export type InitFromMeta<M extends Readonly<{ fields: readonly FieldMeta<string>[] }>> = {
+  [K in M["fields"][number] as K["key"]]: number;
+};

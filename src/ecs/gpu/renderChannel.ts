@@ -4,11 +4,11 @@ import type { StoreView, World } from "../core/index.js";
 import { BaseChannel, BYTES_PER_F32, type DfsOrder } from "./baseChannel.js";
 import { RenderKind } from "../../interfaces.js";
 import {
-  ShapeLeafMeta,
+  ShapeMeta,
   OperationMeta,
   RenderNodeMeta,
   TransformMeta,
-} from "../core/registry.js";
+} from "../registry.js";
 
 type MetaName<M extends { name: string }> = M["name"];
 type MetaKeys<M extends { fields: readonly { key: string }[] }> =
@@ -17,7 +17,7 @@ type MetaKeys<M extends { fields: readonly { key: string }[] }> =
 export type RenderSyncArgs = {
   order: DfsOrder;            // RenderTree.order
   orderEpoch: number;         // RenderTree.epoch
-  shapeStore: StoreView<MetaName<typeof ShapeLeafMeta>, MetaKeys<typeof ShapeLeafMeta>>;
+  shapeStore: StoreView<MetaName<typeof ShapeMeta>, MetaKeys<typeof ShapeMeta>>;
   opStore: StoreView<MetaName<typeof OperationMeta>, MetaKeys<typeof OperationMeta>>;
   renderStore: StoreView<MetaName<typeof RenderNodeMeta>, MetaKeys<typeof RenderNodeMeta>>;
   transformStore: StoreView<MetaName<typeof TransformMeta>, MetaKeys<typeof TransformMeta>>;
