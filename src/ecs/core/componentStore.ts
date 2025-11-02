@@ -174,8 +174,10 @@ export class ComponentStore<M extends ComponentMeta> {
       const v = patch[k as KeysOf<M>];
       if (v == null) continue;
       const column = (this._fields as any)[k] as TypedArrayLike;
-      column[denseIndex] = v as any;
-      updated = true;
+      if (column[denseIndex] !== (v as any)) {
+        column[denseIndex] = v as any;
+        updated = true;
+      }
     }
 
     if (updated) {
