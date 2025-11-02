@@ -50,7 +50,12 @@ function collectComponentBlock(
   remapId: (n: number) => number,
   opts?: { dropDefaultColumns?: boolean }
 ): RmfwComponentBlockV1 | null {
-  const store = world.store(meta.name);
+  let store: ReturnType<World["store"]>;
+  try {
+    store = world.store(meta.name);
+  } catch {
+    return null;
+  }
   const fields = store.fields() as Record<string, Float32Array | Int32Array | Uint32Array>;
 
   const present = new Array<number>(entityOrder.length).fill(0);
