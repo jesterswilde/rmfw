@@ -6,7 +6,6 @@ export type WriteRecord = { offset: number; size: number };
 export function installWebGPUShims(): void {
   const g = global as any;
 
-  // Runtime constants (browser normally provides these)
   if (!g.GPUBufferUsage) {
     g.GPUBufferUsage = {
       COPY_DST: 1 << 0,
@@ -25,28 +24,48 @@ export function installWebGPUShims(): void {
 
 /** Minimal queue that records writeBuffer calls. */
 export class MockQueue implements GPUQueue {
+  // Nominal brand to satisfy newer lib.dom.d.ts
+  // @ts-ignore
+  readonly __brand: "GPUQueue" = "GPUQueue";
   // @ts-ignore
   label: string = "";
+
   public writes: WriteRecord[] = [];
 
-  writeBuffer(
-    _buffer: GPUBuffer,
-    bufferOffset: number,
-    data: ArrayBuffer | ArrayBufferView,
-    dataOffset?: number,
-    size?: number
-  ): void {
-    const bytes = size ?? (data as ArrayBuffer).byteLength;
-    this.writes.push({ offset: bufferOffset | 0, size: bytes | 0 });
+  // Important: return `undefined` (not void) to match lib.dom
+  writeBuffer(...args: any[]): undefined {
+    // (buffer: GPUBuffer, bufferOffset: number, data: GPUAllowSharedBufferSource, dataOffset?: number, size?: number)
+    const bufferOffset: number = args[1] | 0;
+    const data = args[2];
+    const sizeArg = args[4];
+
+    let totalBytes = 0;
+    if (sizeArg != null) {
+      totalBytes = sizeArg | 0;
+    } else if (data && typeof data.byteLength === "number") {
+      totalBytes = (data as ArrayBufferView | ArrayBuffer).byteLength | 0;
+    }
+
+    this.writes.push({ offset: bufferOffset, size: totalBytes });
+    return undefined;
   }
 
-  // Optional no-op stubs
-  // @ts-ignore
-  copyExternalImageToTexture(): void {}
-  // @ts-ignore
-  submit(): void {}
-  // @ts-ignore
-  onSubmittedWorkDone(): Promise<void> { return Promise.resolve(); }
+  writeTexture(..._args: any[]): undefined {
+    return undefined;
+  }
+
+  copyExternalImageToTexture(..._args: any[]): undefined {
+    return undefined;
+  }
+
+  submit(..._args: any[]): undefined {
+    return undefined;
+  }
+
+  // Important: Promise<undefined> to match lib.dom
+  onSubmittedWorkDone(): Promise<undefined> {
+    return Promise.resolve(undefined);
+  }
 
   reset() { this.writes.length = 0; }
 }

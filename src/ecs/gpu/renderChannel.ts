@@ -1,5 +1,4 @@
 // src/ecs/gpu/renderChannel.ts
-
 import type { StoreView, World } from "../core/index.js";
 import { BaseChannel, BYTES_PER_F32, type DfsOrder } from "./baseChannel.js";
 import { RenderKind } from "../../interfaces.js";
@@ -22,23 +21,22 @@ export type RenderSyncArgs = {
   renderStore: StoreView<MetaName<typeof RenderNodeMeta>, MetaKeys<typeof RenderNodeMeta>>;
   transformStore: StoreView<MetaName<typeof TransformMeta>, MetaKeys<typeof TransformMeta>>;
   transformOrder: DfsOrder;   // TransformTree.order (maps entity → transform row)
-  transformOrderEpoch: number; // TransformTree.epoch  ❗️added to avoid false early-out
+  transformOrderEpoch: number; // TransformTree.epoch
 };
 
 const LANES_PER_ROW = 10; // 4 int32 + 6 float32
 const BYTES_PER_ROW = LANES_PER_ROW * BYTES_PER_F32;
 
 export class RenderChannel extends BaseChannel {
-  // Version tracking for incremental uploads
   private shapeStoreEpochSeen = -1;
   private opStoreEpochSeen = -1;
+  private renderStoreEpochSeen = -1;
   private shapeRowVersionSeen = new Uint32Array(0);
   private opRowVersionSeen = new Uint32Array(0);
 
-  private entityToRow = new Int32Array(0);       // entity id → channel row index (RenderTree order)
+  private entityToRow = new Int32Array(0);        // entity id → channel row index (RenderTree order)
   private transformRowLookup = new Int32Array(0); // entity id → transform row index (TransformTree order)
 
-  // Track transform order epoch to ensure transformRow changes propagate
   private lastTransformOrderEpoch = -1;
 
   private ensureEntityCaches(world: World) {
@@ -74,7 +72,6 @@ export class RenderChannel extends BaseChannel {
     this.ensureCpu(rows, BYTES_PER_ROW);
     this.ensureEntityCaches(world);
 
-    // Expand row version caches to store capacities
     if (this.shapeRowVersionSeen.length < shapeStore.capacity) {
       const n = Math.max(this.shapeRowVersionSeen.length << 1 || 1, shapeStore.capacity);
       const tmp = new Uint32Array(n); tmp.set(this.shapeRowVersionSeen);
@@ -86,7 +83,6 @@ export class RenderChannel extends BaseChannel {
       this.opRowVersionSeen = tmp;
     }
 
-    // Resolve columns (self-describing via meta)
     const shapeFields = shapeStore.fields();
     const opFields = opStore.fields();
     const renderFields = renderStore.fields();
@@ -95,7 +91,6 @@ export class RenderChannel extends BaseChannel {
     const { opType } = opFields;
     const { parent } = renderFields;
 
-    // Prepare lookup tables for this sync
     const entityCount = this.entityToRow.length;
     this.entityToRow.fill(-1);
     for (let i = 0; i < nodeCount; i++) {
@@ -120,30 +115,19 @@ export class RenderChannel extends BaseChannel {
       return mapped >= 0 ? mapped + 1 : 0;
     };
 
-    // Directly use the precomputed TransformTree mapping; absent = -1
     const transformRowForEntity = (entityId: number): number => {
       const mapped = this.transformRowLookup[entityId]!;
       return mapped >= 0 ? mapped : -1;
     };
 
-    // Always seed implicit root row at index 0 (MIN op parented to itself)
+    // implicit root row
     this.i32[0] = RenderKind.Op;
     this.i32[1] = 0;
     this.i32[2] = 0;
     this.i32[3] = -1;
     this.f32.fill(0, 4, LANES_PER_ROW);
 
-    // Early-out: ONLY if nothing could possibly change on GPU
-    if (
-      this.shapeStoreEpochSeen === shapeStore.storeEpoch &&
-      this.opStoreEpochSeen === opStore.storeEpoch &&
-      this.lastOrderEpoch === orderEpoch &&
-      this.lastTransformOrderEpoch === transformOrderEpoch // ✅ block false negatives when transform order changes
-    ) {
-      return false;
-    }
-
-    // Full rebuild when Render DFS packing order changes
+    // Full rebuild when render order changes
     if (this.lastOrderEpoch !== orderEpoch) {
       for (let i = 0; i < nodeCount; i++) {
         const e = order[i]!;
@@ -188,10 +172,11 @@ export class RenderChannel extends BaseChannel {
       this.lastTransformOrderEpoch = transformOrderEpoch;
       this.shapeStoreEpochSeen = shapeStore.storeEpoch;
       this.opStoreEpochSeen = opStore.storeEpoch;
+      this.renderStoreEpochSeen = renderStore.storeEpoch;
       return true;
     }
 
-    // Incremental path
+    // Incremental path: ALWAYS run (so parent/transform mapping changes via raw writes are detected)
     let changed = false;
     let runStart = -1;
 
@@ -285,10 +270,16 @@ export class RenderChannel extends BaseChannel {
     }
     if (runStart >= 0) this.dirtyRanges.push(runStart, rows - 1);
 
+    const transformOrderChanged = this.lastTransformOrderEpoch !== transformOrderEpoch;
+    if (!changed && transformOrderChanged) {
+      this.markAllDirty();
+      changed = true;
+    }
+
     this.shapeStoreEpochSeen = shapeStore.storeEpoch;
     this.opStoreEpochSeen = opStore.storeEpoch;
+    this.renderStoreEpochSeen = renderStore.storeEpoch;
     this.lastTransformOrderEpoch = transformOrderEpoch;
-    // lastOrderEpoch unchanged here (we only update it on full rebuild)
     return changed;
   }
 }

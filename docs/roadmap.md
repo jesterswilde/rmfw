@@ -116,6 +116,12 @@ Includes:
     - [ ] O(1) add/remove moves; queries iterate chunks linearly
     - [ ] Keep meta-driven field definitions; Bridge/systems unchanged
     - [ ] Validate byte-parity with pre-archetype GPU output
+    - [ ] Change render channels to work off epochs and give tools for queryviews (and other systems) to bump epochs
+    Example API:
+      store.touchRow(i); // bumps rowVersion + storeEpoch once
+      store.touch(entity) (row bump by entity)
+      store.touchRows(start, end) (range)
+      store.touchStore() (only store epoch)
 
 **Exit criteria**
 - Systems and Bridge require no code changes after swap
