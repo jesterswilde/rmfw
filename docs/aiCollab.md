@@ -60,14 +60,6 @@
   - Constants: use `UPPER_SNAKE_CASE` for sentinel values or enums (e.g. `NONE` for an invalid ID).  
   - Filenames: use `lowerCamelCase.ts` and match the content (e.g. a component defined in `transformTree.ts` should be named `TransformTree` internally).
 
-- **File Organization:**  
-  Component-related files reside under `/src/ecs/` in specific roles:  
-  - `core.ts` – the base ECS engine and core logic.  
-  - `registry.ts` – component definitions and registration logic.  
-  - `trees.ts` – hierarchical structure management (e.g. scene graph or entity trees).  
-  - `save.ts` / `load.ts` – serialization and deserialization systems.  
-  - `tests/ecs/*` – Jest test suites for ECS behaviors (each file testing a specific aspect or system).
-
 - **Project Structure Continuity:**  
   Follow the established project structure when adding new files or sections. Keep new code consistent with the placement and naming of similar existing code.  
   Do not reorganize files or code unless absolutely required.
@@ -98,9 +90,6 @@
 
 - **Use Jest for testing.**  
   All tests should be written using the Jest framework, following the patterns already in `/tests/ecs/`. This includes using `describe` and `it` blocks for structure and clear, behavior-driven descriptions of test cases.
-
-- **Prefer unit tests with round-trip validation.**  
-  When fixing or adding features, include tests that cover both directions of an operation if applicable. For example, if there is a save functionality, the test should save, then load, and confirm the saved output matches the original (save → load → save should round-trip without data loss).
 
 - **Type safety tests.**  
   Intentionally breaking the type rules can be tested to ensure the compiler catches errors. Use comments like  
