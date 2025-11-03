@@ -4,6 +4,7 @@ export enum RenderKind {
     Op = 2
 }
 
+//OP and Shape will never overlap as wgsl reads them both as 'kind'
 export enum Shape {
     Sphere = 0,
     Box = 1

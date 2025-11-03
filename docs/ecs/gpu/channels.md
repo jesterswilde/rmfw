@@ -2,158 +2,280 @@
 
 # GPU Channels
 
-This document covers the ECS → GPU channel layer: reusable CPU-side packing plus channel-specific sync logic that prepares compact, deterministic buffers for WebGPU. Channels minimize uploads via dirty-range coalescing and use epoch/version counters to avoid unnecessary work.
-
-The channel stack has two layers:
-- BaseChannel: shared mechanics for CPU AoS storage, dirty tracking, and GPU buffer lifecycle.
-- Concrete channels:
-  - TransformsChannel: streams inverse-world transforms in TransformTree DFS order.
-  - RenderChannel: streams render-node rows (ops/shapes) in RenderTree DFS order, including parenting and transform references.
-
-All channels are deterministic: when a DFS order changes, the channel fully repacks; otherwise, only modified rows get rewritten.
+This document explains the **ECS → GPU channel layer**, which prepares compact, deterministic buffers for WebGPU from ECS data. Channels minimize GPU uploads through dirty-range coalescing and use **epoch/version tracking** to skip redundant work.
 
 ---
 
-## BaseChannel (shared)
+## Architecture Overview
 
-Plain-language overview
+### Channel Layers
 
-BaseChannel owns a CPU ArrayBuffer and typed views, tracks dirty row ranges, and manages a corresponding GPUBuffer. Subclasses implement `sync(world, args)` to populate the CPU buffer based on ECS state and mark rows as dirty. BaseChannel then resizes the GPU buffer if needed and flushes dirty ranges with minimal `writeBuffer` calls.
+| Layer | Description |
+|--------|-------------|
+| **BaseChannel** | Common CPU/GPU buffer management, dirty tracking, and upload logic. |
+| **TransformsChannel** | Streams inverse-world transforms in `TransformTree` DFS order. |
+| **RenderChannel** | Streams render nodes (ops/shapes) in `RenderTree` DFS order, wiring hierarchy links and transform references. |
 
-API
+All channels are **deterministic** — given identical ECS and tree inputs, they produce byte-identical outputs.
 
-- layoutEntry(binding, visibility = GPUShaderStage.COMPUTE) → GPUBindGroupLayoutEntry  
-  Default read-only storage buffer layout. Channels can override if they need different visibility or buffer type.
-- createOrResize(device: GPUDevice) → boolean  
-  Ensures a GPUBuffer exists with the current byte size. Recreates when size changes, marks the entire buffer dirty, and returns true if recreated.
-- flush(queue: GPUQueue): void  
-  Merges and uploads dirty ranges. Emits a single full upload if the whole buffer is dirty.
-- sync(world: World, args: any) → boolean (abstract)  
-  Channel-specific packing. Return true when the CPU AoS changed (so a flush is necessary).
+---
 
-Key internal helpers
+## BaseChannel
 
-- ensureCpu(rows: number, rowSizeBytes: number): void  
-  Ensures CPU capacity; updates `Float32Array` and `Int32Array` views.
-- markRowDirty(rowIndex: number): void  
-  Tracks a single dirty row; coalesces with the most-recent range when adjacent.
-- markAllDirty(): void  
-  Marks the full buffer as dirty.
+### Purpose
+`BaseChannel` provides:
+- CPU-side AoS buffer with `Float32Array` + `Int32Array` views.
+- Tracking of dirty ranges for efficient GPU uploads.
+- Automatic `GPUBuffer` creation and resizing.
 
-Determinism & performance
+### API Summary
 
-- Packing order is dictated strictly by DFS orders from trees.
-- Writes are minimized to row runs and single full-buffer uploads when needed.
-- No per-frame allocations beyond growth points; arrays are reused.
+- **layoutEntry(binding, visibility?)** → `GPUBindGroupLayoutEntry`  
+  Returns the default read-only storage buffer layout (visibility defaults to `COMPUTE`).
+
+- **createOrResize(device)** → `boolean`  
+  Ensures GPU buffer matches CPU buffer size; recreates when needed and marks entire buffer dirty.
+
+- **flush(queue)**  
+  Coalesces and uploads dirty ranges via `queue.writeBuffer`.
+
+- **sync(world, args)** → `boolean` *(abstract)*  
+  Subclasses implement to populate CPU buffer and mark dirty regions.  
+  Returns `true` if a GPU flush is required.
+
+### Key Helpers
+
+- `ensureCpu(rows, rowSizeBytes)` — grows the CPU buffer and typed views.
+- `markRowDirty(row)` — marks a single row dirty.
+- `markAllDirty()` — marks entire buffer dirty.
+
+### Determinism & Performance
+
+- Deterministic packing — DFS orders define layout.
+- Minimal allocations — caches grow but never shrink.
+- Dirty-range merging — adjacent runs coalesce into one GPU write.
 
 ---
 
 ## TransformsChannel
 
-What it does
+### What It Does
+Streams inverse-world transforms in DFS order as contiguous rows of 12 floats (`3×4` matrix, row-major):
 
-Streams inverse-world transforms as tightly packed rows in TransformTree DFS order. Each row is 12 float32 values representing a 3×4 inverse matrix in row-major order:
+```
 
-inv_r00 inv_r01 inv_r02 inv_tx inv_r10 inv_r11 inv_r12 inv_ty inv_r20 inv_r21 inv_r22 inv_tz
+inv_r00 inv_r01 inv_r02 inv_tx  
+inv_r10 inv_r11 inv_r12 inv_ty  
+inv_r20 inv_r21 inv_r22 inv_tz
 
-When the DFS order changes, the channel fully repacks; otherwise, it updates only rows whose `rowVersion` changed.
+````
 
-API
+### Behavior
+- **Full repack** when `orderEpoch` changes.
+- **Incremental patch** when per-row `rowVersion` changes.
+- Skips redundant uploads if store and order epochs unchanged.
 
-- sync(world, { order, orderEpoch, store }) → boolean  
-  - order: Int32Array (TransformTree.order)  
-  - orderEpoch: number (TransformTree.epoch)  
-  - store: StoreView of Transform (must expose inv_* and rowVersion)  
-  Performs a full rebuild if `orderEpoch` changed. Otherwise, compares each entity row’s `rowVersion` with a cached `rowVersionSeen` and rewrites only changed rows, pushing a dirty run.
-- Buffer layout: rows × 12 float32 (48 bytes per row)  
-  BaseChannel’s `layoutEntry` exposes the buffer as read-only storage by default.
+### Layout
+- **Row size:** 12×`f32` = 48 bytes.
+- **Mapping:** row `i` = entity `order[i]`.
 
-Notes
+### API
+```ts
+sync(world, { order, orderEpoch, store }): boolean
+````
 
-- Rows for entities missing a Transform are skipped during incremental checks; on full rebuild they simply do not contribute data.
-- Epoch gating ensures no spurious uploads when nothing changed.
+Where:
+
+- `order` = `TransformTree.order`
+    
+- `orderEpoch` = `TransformTree.epoch`
+    
+- `store` = Transform `StoreView`
+    
+
+### Notes
+
+- Missing transforms are skipped safely.
+    
+- Full rebuilds are deterministic.
+    
+- `rowVersionSeen` tracks last-known state per transform row.
+    
 
 ---
 
 ## RenderChannel
 
-What it does
+### Overview
 
-Streams render nodes in RenderTree DFS order with one AoS row per entity plus an implicit root row at index 0. Each row carries:
-- Kind (None / Op / Shape) and subtype (e.g., Op type or Shape type)
-- Parent row index (in Render DFS space) for hierarchy reconstruction on GPU
-- Transform row index (in Transform DFS space) for sampling the correct transform
-- Up to six shape parameters (float32 lanes)
+The `RenderChannel` streams **render nodes** (ops/shapes/inert) in `RenderTree` DFS order.  
+Each row directly maps to the shader’s `PackedNode` struct:  
+**4×int32 header + 12×float32 payload = 64 bytes per row.**
 
-The channel performs:
-- Full repack when RenderTree order changes
-- Incremental updates when shape or op row versions change
-- Early-out protection based on store epochs and both Render and Transform order epochs
+### Row Layout
 
-API
+|Slot|Type|Description|
+|---|---|---|
+|`i32[0]`|`kind`|Encoded type: `0=none`, op type, or shape type|
+|`i32[1]`|`firstChild`|Index of first child in render DFS order, or `-1`|
+|`i32[2]`|`nextSibling`|Index of next sibling in DFS order, or `-1`|
+|`i32[3]`|`flags`|Reserved; currently `0`|
+|`f32[0]` (`v0`)|`transformRow` or `childCount` (bitcast from int)||
+|`f32[1]` (`v1`)|`materialId` or unused||
+|`f32[2..7]`|Shape parameters (`p0..p5`)||
+|`f32[8..11]`|Reserved (zeroed)||
 
-- sync(world, args) → boolean  
-  Args:
-  - order: Int32Array (RenderTree.order)
-  - orderEpoch: number (RenderTree.epoch)
-  - shapeStore, opStore, renderStore: StoreViews for shape/op/render-node components (with rowVersion, capacity, storeEpoch)
-  - transformStore: StoreView for Transform (used for capacity info if needed)
-  - transformOrder: Int32Array (TransformTree.order)
-  - transformOrderEpoch: number (TransformTree.epoch)  
-  Behavior:  
-  - Full rebuild when `orderEpoch` changes (re-emits all rows in DFS order; marks full dirty)  
-  - Early-out when shape/op `storeEpoch`, Render `orderEpoch`, and Transform `orderEpoch` haven’t changed  
-  - Incremental path rewrites rows where:
-    - Kind or subtype differs
-    - Parent mapping changed
-    - Transform mapping changed
-    - Row version changed for the referenced shape/op row
-- Buffer layout: per-row 10 lanes (4 int32 + 6 float32)  
-  - i32[0] kind, i32[1] subtype, i32[2] parentRow, i32[3] transformRow  
-  - f32[4..9] shape params (zeroed for Ops/None)
+### Packing Rules
 
-Determinism & safety
+- **Shapes:**
+    
+    - `kind` = `shapeType`
+        
+    - `v0` = transform row index (`bitcast<i32>`)
+        
+    - `v1` = material id (`-1`)
+        
+    - `v2..v7` = shape parameters
+        
+- **Ops:**
+    
+    - `kind` = `opType`
+        
+    - `v0` = `childCount` (`bitcast<i32>`)
+        
+    - Remaining payload zeroed
+        
+- **Inert:**
+    
+    - `kind=0`, payload all zeros
+        
 
-- Parent row is derived from the current Render DFS mapping only.
-- Transform row is derived from the Transform DFS mapping only.
-- Both DFS order epochs must match to safely early-out; otherwise a full repack or incremental rewrite occurs.
-- Entity-to-row caches are resized to world entity capacity and zeroed each sync.
+### Sync Behavior
+
+|Condition|Action|
+|---|---|
+|Render `orderEpoch` changed|Full rebuild (repack all rows)|
+|Shape/op `rowVersion` changed|Incremental rewrite for affected row|
+|Parent/child links changed|Recompute `firstChild`, `nextSibling`|
+|Transform `orderEpoch` changed|Update only transform indices for shapes|
+|Kind changed (component add/remove)|Row rewritten with new kind and cleared payload|
+
+### API
+
+```ts
+sync(world, {
+  order, orderEpoch,
+  shapeStore, opStore, renderStore,
+  transformStore,
+  transformOrder, transformOrderEpoch
+}): boolean
+```
+
+### Determinism
+
+- `firstChild` / `nextSibling` derive purely from ECS parent links.
+    
+- Transform index lookup based on current `TransformTree.order`.
+    
+- Caches (`entityToRow`, `transformRowLookup`) grow deterministically.
+    
+- No root-row special logic — `RenderTree` defines all rows.
+    
 
 ---
 
-## Testing Plan (Channels)
+## Testing Plan
 
-TransformsChannel
+### TransformsChannel
 
-- Full rebuild on order change  
-  - Create a small tree, run sync, mutate orderEpoch, ensure full repack and full dirty upload.
-- Incremental updates by rowVersion  
-  - Toggle a single Transform row’s version; expect one contiguous dirty range covering that row’s position in DFS.
-- No-ops when storeEpoch unchanged  
-  - Call sync twice without changes; expect false and no dirty ranges.
-- Capacity growth  
-  - Increase Transform store capacity; `rowVersionSeen` should grow without losing previously cached versions.
+1. **Full rebuild on order change**
+    
+    - Swap DFS order, expect full dirty upload.
+        
+2. **Incremental by rowVersion**
+    
+    - Modify one transform, expect single-row update.
+        
+3. **No-ops when unchanged**
+    
+    - Second sync with same epochs should return `false`.
+        
+4. **Capacity growth**
+    
+    - Expanding store resizes internal caches.
+        
+5. **Determinism**
+    
+    - Identical input → identical buffer bytes.
+        
 
-RenderChannel
+### RenderChannel
 
-- Full rebuild on Render order change  
-  - Change RenderTree.epoch; expect markAllDirty and complete buffer rewrite.
-- Early-out when nothing changed  
-  - Keep shape/op storeEpoch and both order epochs stable; expect sync returns false.
-- Incremental updates  
-  - Change a single shape row’s values and bump rowVersion; expect exactly that row range to be marked dirty.
-- Parent and transform mapping changes  
-  - Reparent in Render tree; or change Transform order epoch; expect correct parentRow/transformRow updates and appropriate dirty ranges.
-- Kind transitions  
-  - Entity switching from Shape→Op or Shape→None should rewrite the specific row and reset lanes accordingly.
-- Entity cache growth  
-  - Add many entities; ensure internal `entityToRow` and `transformRowLookup` resize and remain initialized to -1 for out-of-range ids.
+1. **Full rebuild on render order change**
+    
+    - Change `RenderTree.epoch`; expect full 64×N-byte upload.
+        
+2. **Incremental shape update**
+    
+    - Modify shape param and bump version; one-row dirty run.
+        
+3. **Op child count change**
+    
+    - Modify children; only parent row updates.
+        
+4. **Transform reindex only**
+    
+    - Change transform DFS order; affected shape rows rewrite.
+        
+5. **Kind transitions**
+    
+    - Add/remove `Shape` or `Operation` component; correct kind & zeroing.
+        
+6. **Hierarchy link changes**
+    
+    - Reparent; updates `firstChild` / `nextSibling`.
+        
+7. **Entity cache growth**
+    
+    - Increase entity count; caches resize safely.
+        
+8. **Inert rows**
+    
+    - Entities missing both Shape/Op → `kind=0` + zero payload.
+        
+9. **Deterministic output**
+    
+    - Stable input produces byte-identical CPU buffer.
+        
 
-Shared (BaseChannel)
+### BaseChannel Shared Tests
 
-- Dirty-range coalescing  
-  - Mark adjacent rows; flush should merge them into a single writeBuffer call.
-- Full-buffer path  
-  - markAllDirty leads to a single writeBuffer of the entire AoS.
-- Buffer recreate  
-  - Increasing byte size triggers `createOrResize` → full dirty → one full write; no leftover dirty ranges afterward.
+1. **Dirty range coalescing** — Adjacent dirty rows merge into one upload.
+    
+2. **Full-buffer path** — `markAllDirty` triggers one full write.
+    
+3. **Buffer recreation** — Size increase triggers reallocation and full upload.
+    
+4. **Zero-sized safety** — Empty buffers handled gracefully.
+    
+
+---
+
+## Implementation Notes
+
+- **Row Size:** Always 64 bytes for RenderChannel, 48 bytes for TransformsChannel.
+    
+- **Endian Safety:** Int writes for WGSL bitcasts use shared buffer view.
+    
+- **No allocations per frame:** All caches are reused.
+    
+- **Root handled by tree:** Channel never writes a “root row”; `RenderTree` order defines layout.
+    
+- **Flags reserved:** Currently zero, but future “gate” or “visibility mask” bits can occupy it.
+    
+
+---
+
+**Summary:**  
+GPU Channels form the bridge between ECS component state and WebGPU buffers.  
+They are deterministic, memory-efficient, and minimize GPU traffic by coalescing updates and tracking per-row changes across both component versions and tree epochs.
