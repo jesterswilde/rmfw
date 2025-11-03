@@ -2,9 +2,12 @@
 import { World } from "../../src/ecs/core/world.js";
 import type { ComponentMeta, Def } from "../../src/ecs/interfaces.js";
 import { saveWorld, saveWorldToJSON, loadWorld, loadWorldFromJSON } from "../../src/ecs/saveLoad.js";
+import { Tree } from "../../src/ecs/tree/tree.js";
 
 type Vec2 = "x" | "y";
 type LinkKeys = "parent" | "next" | "prev";
+type ColorKeys = "r" | "g" | "b";
+type TreeNodeKeys = "parent" | "firstChild" | "lastChild" | "nextSibling" | "prevSibling";
 
 const positionMeta: ComponentMeta<"Position", Vec2> = {
   name: "Position",
@@ -18,13 +21,41 @@ const linksMeta: ComponentMeta<"Links", LinkKeys> = {
   name: "Links",
   fields: [
     { key: "parent", ctor: Int32Array, default: -1, link: true },
-    { key: "next",   ctor: Int32Array, default: -1, link: true },
-    { key: "prev",   ctor: Int32Array, default: -1, link: true },
+    { key: "next", ctor: Int32Array, default: -1, link: true },
+    { key: "prev", ctor: Int32Array, default: -1, link: true },
+  ],
+};
+
+const colorMeta: ComponentMeta<"Color", ColorKeys> = {
+  name: "Color",
+  fields: [
+    { key: "r", ctor: Float32Array, default: 0 },
+    { key: "g", ctor: Float32Array, default: 0 },
+    { key: "b", ctor: Float32Array, default: 0 },
+  ],
+};
+
+const treeDataMeta: ComponentMeta<"TreeData", "value"> = {
+  name: "TreeData",
+  fields: [{ key: "value", ctor: Float32Array, default: 0 }],
+};
+
+const treeNodeMeta: ComponentMeta<"TreeNode", TreeNodeKeys> = {
+  name: "TreeNode",
+  fields: [
+    { key: "parent", ctor: Int32Array, default: -1, link: true },
+    { key: "firstChild", ctor: Int32Array, default: -1, link: true },
+    { key: "lastChild", ctor: Int32Array, default: -1, link: true },
+    { key: "nextSibling", ctor: Int32Array, default: -1, link: true },
+    { key: "prevSibling", ctor: Int32Array, default: -1, link: true },
   ],
 };
 
 const positionDef: Def<typeof positionMeta> = { meta: positionMeta } as const;
 const linksDef: Def<typeof linksMeta> = { meta: linksMeta } as const;
+const colorDef: Def<typeof colorMeta> = { meta: colorMeta } as const;
+const treeDataDef: Def<typeof treeDataMeta> = { meta: treeDataMeta } as const;
+const treeNodeDef: Def<typeof treeNodeMeta> = { meta: treeNodeMeta } as const;
 
 describe("Save/Load JSON", () => {
   it("round-trip with densify=true compacts ids, remaps link fields, and preserves store data", () => {
@@ -165,5 +196,174 @@ describe("Save/Load JSON", () => {
     expect(Array.from(lf2.parent)).toEqual(savedL.parent);
     expect(Array.from(lf2.next)).toEqual(savedL.next);
     expect(Array.from(lf2.prev)).toEqual(savedL.prev);
+  });
+
+  it("handles mixed stores with differing capacities", () => {
+    const w = new World({ initialCapacity: 1 });
+    const P = w.register(positionDef, 1);
+    const L = w.register(linksDef, 4);
+    const C = w.register(colorDef, 1);
+
+    const e0 = w.createEntity();
+    const e1 = w.createEntity();
+    const e2 = w.createEntity();
+
+    P.add(e0, { x: 1, y: 2 });
+    P.add(e1, { x: 3, y: 4 });
+    P.add(e2, { x: 5, y: 6 });
+
+    L.add(e0, { parent: -1, next: e1, prev: -1 });
+    L.add(e1, { parent: e0, next: e2, prev: e0 });
+    L.add(e2, { parent: e0, next: -1, prev: e1 });
+
+    C.add(e0, { r: 1, g: 0.5, b: 0.25 });
+    C.add(e1, { r: 0.1, g: 0.2, b: 0.3 });
+    C.add(e2, { r: 0.7, g: 0.8, b: 0.9 });
+
+    const snap = saveWorld(w);
+
+    const w2 = new World({ initialCapacity: 1 });
+    const P2 = w2.register(positionDef, 1);
+    const L2 = w2.register(linksDef, 1);
+    const C2 = w2.register(colorDef, 1);
+
+    loadWorld(w2, snap);
+
+    expect(P2.size).toBe(3);
+    expect(L2.size).toBe(3);
+    expect(C2.size).toBe(3);
+
+    expect(P2.capacity).toBe(snap.components.Position.capacity);
+    expect(L2.capacity).toBe(snap.components.Links.capacity);
+    expect(C2.capacity).toBe(snap.components.Color.capacity);
+
+    const pf = P2.fields();
+    const lf = L2.fields() as any;
+    const cf = C2.fields();
+
+    const row0 = P2.denseIndexOf(0);
+    const row1 = P2.denseIndexOf(1);
+    const row2 = P2.denseIndexOf(2);
+
+    expect(pf.x[row0]).toBeCloseTo(1);
+    expect(pf.y[row0]).toBeCloseTo(2);
+    expect(pf.x[row1]).toBeCloseTo(3);
+    expect(pf.y[row1]).toBeCloseTo(4);
+    expect(pf.x[row2]).toBeCloseTo(5);
+    expect(pf.y[row2]).toBeCloseTo(6);
+
+    expect(cf.r[row0]).toBeCloseTo(1);
+    expect(cf.g[row0]).toBeCloseTo(0.5);
+    expect(cf.b[row0]).toBeCloseTo(0.25);
+    expect(cf.r[row1]).toBeCloseTo(0.1);
+    expect(cf.g[row1]).toBeCloseTo(0.2);
+    expect(cf.b[row1]).toBeCloseTo(0.3);
+    expect(cf.r[row2]).toBeCloseTo(0.7);
+    expect(cf.g[row2]).toBeCloseTo(0.8);
+    expect(cf.b[row2]).toBeCloseTo(0.9);
+
+    expect(lf.parent[L2.entityToDense[0]]).toBe(-1);
+    expect(lf.next[L2.entityToDense[0]]).toBe(1);
+    expect(lf.parent[L2.entityToDense[1]]).toBe(0);
+    expect(lf.next[L2.entityToDense[1]]).toBe(2);
+    expect(lf.prev[L2.entityToDense[1]]).toBe(0);
+    expect(lf.parent[L2.entityToDense[2]]).toBe(0);
+    expect(lf.prev[L2.entityToDense[2]]).toBe(1);
+    expect(lf.next[L2.entityToDense[2]]).toBe(-1);
+  });
+
+  it("rehydrates registered trees using provided rehydrators", () => {
+    const world = new World({ initialCapacity: 4 });
+    const tree = new Tree(world, treeDataMeta, treeNodeMeta, { value: 99 });
+    const dataStore = world.store("TreeData");
+    const nodeStore = world.store("TreeNode");
+
+    const addNode = (value: number) => {
+      const entity = world.createEntity();
+      (dataStore as any).add(entity, { value });
+      (nodeStore as any).add(entity, { parent: -1, firstChild: -1, lastChild: -1, nextSibling: -1, prevSibling: -1 });
+      tree.setParent(entity, tree.root);
+      return entity;
+    };
+
+    const childA = addNode(1);
+    const childB = addNode(2);
+    tree.setParent(childB, childA);
+
+    const snap = saveWorld(world);
+    expect(snap.trees).toEqual([treeNodeMeta.name]);
+
+    const world2 = new World({ initialCapacity: 1 });
+    world2.register(treeDataDef, 1);
+    world2.register(treeNodeDef, 1);
+
+    let rehydrated: Tree | null = null;
+    loadWorld(world2, snap, {
+      [treeNodeMeta.name]: (w) => {
+        rehydrated = Tree.rehydrate(w, treeDataMeta, treeNodeMeta);
+      },
+    });
+
+    expect(rehydrated).not.toBeNull();
+    const treeOrder = Array.from(rehydrated!.order);
+    expect(treeOrder.length).toBe(3);
+    expect(treeOrder[0]).toBe(rehydrated!.root);
+    expect(world2.isEntityProtected(rehydrated!.root)).toBe(true);
+
+    const nodeFields = (world2.store("TreeNode") as any).fields();
+    const rootRow = (world2.store("TreeNode") as any).denseIndexOf(rehydrated!.root);
+    const firstChild = nodeFields.firstChild[rootRow];
+    expect(firstChild).not.toBe(-1);
+    const firstChildRow = (world2.store("TreeNode") as any).denseIndexOf(firstChild);
+    expect(nodeFields.parent[firstChildRow]).toBe(rehydrated!.root);
+    const grandChild = nodeFields.firstChild[firstChildRow];
+    expect(grandChild).not.toBe(-1);
+    const grandChildRow = (world2.store("TreeNode") as any).denseIndexOf(grandChild);
+    expect(nodeFields.parent[grandChildRow]).toBe(firstChild);
+
+    const names: string[] = [];
+    world2.forEachHierarchy((name) => names.push(name));
+    expect(names).toContain(treeNodeMeta.name);
+  });
+
+  it("throws when loading snapshots with missing component metas", () => {
+    const w = new World({ initialCapacity: 2 });
+    const P = w.register(positionDef, 1);
+    const L = w.register(linksDef, 1);
+
+    const entity = w.createEntity();
+    P.add(entity, { x: 11, y: 22 });
+    L.add(entity, { parent: -1, next: -1, prev: -1 });
+
+    const snap = saveWorld(w);
+
+    const w2 = new World({ initialCapacity: 1 });
+    w2.register(positionDef, 1);
+
+    expect(() => loadWorld(w2, snap)).toThrow(/Import failed: store 'Links' is not registered/);
+  });
+
+  it("ignores extra snapshot fields that are not part of the component meta", () => {
+    const w = new World({ initialCapacity: 1 });
+    const P = w.register(positionDef, 1);
+
+    const entity = w.createEntity();
+    P.add(entity, { x: 13, y: 17 });
+
+    const snap = saveWorld(w, { densify: false });
+    const mutated = JSON.parse(JSON.stringify(snap)) as any;
+    mutated.components.Position.fields.extra = [999, 1000];
+
+    const w2 = new World({ initialCapacity: 1 });
+    const P2 = w2.register(positionDef, 1);
+
+    loadWorld(w2, mutated);
+
+    const row = P2.denseIndexOf(entity);
+    expect(row).toBeGreaterThanOrEqual(0);
+    const pf = P2.fields();
+    expect(pf.x[row]).toBeCloseTo(13);
+    expect(pf.y[row]).toBeCloseTo(17);
+    expect((pf as any).extra).toBeUndefined();
   });
 });

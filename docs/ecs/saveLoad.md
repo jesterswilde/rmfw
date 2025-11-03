@@ -183,6 +183,9 @@ TransformTree.rehydrate(world, TransformNodeMeta, world.store("TransformNode").d
    - Missing metas throw.
    - Extra fields ignored (no schema drift support).
 
+6. Tree Enumeration
+   - Snapshot 'trees' array lists each registered hierarchy once (prefers componentName overrides).
+
 ---
 
 ## Conventions
