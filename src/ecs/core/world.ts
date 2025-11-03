@@ -1,7 +1,7 @@
 // src/ecs/core/world.ts
-import type { Def, TreeLike, MetaOf, ComponentMeta, FieldMeta, Entity } from "../interfaces";
-import { ComponentStore, type StoreOf, type StoreView } from "./componentStore";
-import { EntityAllocator } from "./entityAllocator";
+import type { Def, TreeLike, MetaOf, ComponentMeta, FieldMeta, Entity } from "../interfaces.js";
+import { ComponentStore, type StoreOf, type StoreView } from "./componentStore.js";
+import { EntityAllocator } from "./entityAllocator.js";
 
 export interface WorldConfig {
   initialCapacity?: number; // default 1024
