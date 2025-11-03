@@ -1,31 +1,34 @@
-# Overview
-`EntityAllocator` Handled stable entity IDs. keeps sparse and dense mappings in sync, grows its buffers as needed, and bumps a per-entity epoch whenever structure changes so systems can detect updates.
+# EntityAllocator
 
-It is mostly used internally by World
+## Overview
+`EntityAllocator` manages the pool of entity IDs. It tracks live entities in dense order, free IDs, and per-entity epochs for structural change detection. It supports densification (remapping live entities to a contiguous 0..N-1 range) and full export/import for persistence.
 
 ## API
-- `constructor(initialCapacity)` – initialises sparse mapping, free list, and epoch arrays sized for the requested capacity (minimum 1).
-- `capacity`, `size`, `dense` – expose allocator stats and the dense list of live ids.
-- `create()` – returns the next available entity id, reusing ids from the free list before growing the pool.
-- `destroy(id)` – removes the id from the dense list, adds it to the free list, updates sparse mappings, and bumps the entity’s epoch.
-- `isAlive(id)` – reports whether the id currently has a dense slot.
-- `denseIndexOf(id)` – returns the dense index for an entity or `-1` if not live.
+- `constructor(initialCapacity)` – allocates arrays for sparse mappings, epochs, and free IDs.
+- `capacity`, `size`, `dense` – report allocator state and current live ID order.
+- `create()` – returns a new ID, reusing one from the free list before allocating new capacity.
+- `destroy(id)` – removes the ID, compacts the dense list, adds the ID to the free list, and increments its epoch.
+- `isAlive(id)` / `denseIndexOf(id)` – membership and dense index lookups.
+- `computeDenseRemap()` – builds a map assigning new dense IDs to all alive entities.
+- `applyRemap(remap)` – rewrites allocator structures so live entities occupy 0..N-1, clears free list, and bumps each live entity’s epoch.
+- `export()` / `import(data)` – serialize and restore all allocator arrays, sizes, and epochs exactly.
 
 ## Testing Plan
-### Creation Flow
-- Creating consecutive entities produces ids in order, fills the dense list, and grows the allocator when the sparse array would otherwise overflow.
-- Newly created ids record their dense index in the sparse array and start with epoch zero.
+### Creation & Growth
+- Creating entities increments size and dense list correctly.
+- Growth preserves mappings and epochs.
 
-### Destruction and Reuse
-- Destroying an entity in the middle of the dense list moves the last dense id into the gap and updates sparse mappings accordingly.
-- Destroyed ids are marked as free, make `isAlive` return false, and make `denseIndexOf` return `-1`.
-- Creating after a destroy reuses the freed id before allocating a fresh one.
-- Each destroy call bumps the entity epoch exactly once, even after the id is recycled and destroyed again.
+### Destruction & Reuse
+- Destroying an entity removes it from dense order, updates sparse entries, and bumps its epoch once.
+- Recreating reuses freed IDs before issuing new ones.
 
-### Capacity Growth
-- Allocating past the starting capacity resizes the sparse array, epoch array, and free list while keeping existing data intact.
-- Destroying ids near the growth boundary still updates mappings and free lists correctly after resizing.
+### Remap
+- `computeDenseRemap()` produces a one-to-one map for all alive entities.
+- `applyRemap()` updates all arrays so entity IDs are 0..N-1, resets the free list, bumps epochs once per live entity, and sets `next = size`.
 
-### Safety Checks
-- Destroying an id that is already free is a no-op.
-- `isAlive` and `denseIndexOf` return safe defaults for ids outside the allocated range, including negative ids and ids above the current capacity.
+### Export/Import Round Trip
+- Export followed by import yields identical allocator state.
+
+### Safety
+- Destroying non-live or out-of-range IDs is a no-op.
+- `isAlive` and `denseIndexOf` remain safe for all IDs.

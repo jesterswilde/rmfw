@@ -1,10 +1,9 @@
+// tests/ecs/world.test.ts
 import { World } from "../../src/ecs/core/world.js";
 import type { ComponentMeta, Def } from "../../src/ecs/interfaces.js";
 
 type Vec2 = "x" | "y";
-
 type Vel = "vx" | "vy";
-
 type ScaleKey = "scale";
 
 const positionMeta: ComponentMeta<"Position", Vec2> = {
@@ -28,9 +27,19 @@ const scaleMeta: ComponentMeta<"Scale", ScaleKey> = {
   fields: [{ key: "scale", ctor: Float32Array, default: 1 }],
 };
 
+const linkMeta: ComponentMeta<"Links", "parent" | "next" | "prev"> = {
+  name: "Links",
+  fields: [
+    { key: "parent", ctor: Int32Array, default: -1, link: true },
+    { key: "next",   ctor: Int32Array, default: -1, link: true },
+    { key: "prev",   ctor: Int32Array, default: -1, link: true },
+  ],
+};
+
 const positionDef: Def<typeof positionMeta> = { meta: positionMeta } as const;
 const velocityDef: Def<typeof velocityMeta> = { meta: velocityMeta } as const;
 const scaleDef: Def<typeof scaleMeta> = { meta: scaleMeta } as const;
+const linkDef: Def<typeof linkMeta> = { meta: linkMeta } as const;
 
 describe("World", () => {
   it("registers components and exposes stores", () => {
@@ -218,5 +227,116 @@ describe("World", () => {
 
     expect(world.entities.size).toBe(0);
     expect(posStore.size).toBe(0);
+  });
+
+  it("densifies entities across stores and remaps link fields & protected set", () => {
+    const world = new World({ initialCapacity: 8 });
+    const pos = world.register(positionDef, 4);
+    const links = world.register(linkDef, 4);
+
+    // Create sparse ids: [0,1,2,3,4], then remove 1 and 3 to force gaps
+    const ids = [world.createEntity(), world.createEntity(), world.createEntity(), world.createEntity(), world.createEntity()];
+    pos.add(ids[0]!, { x: 0, y: 0 });
+    pos.add(ids[1]!, { x: 1, y: 1 });
+    pos.add(ids[2]!, { x: 2, y: 2 });
+    pos.add(ids[3]!, { x: 3, y: 3 });
+    pos.add(ids[4]!, { x: 4, y: 4 });
+
+    // Link chain: 0 -> 2 -> 4 (parent is previous, next is next, prev is previous)
+    links.add(ids[0]!, { parent: -1, next: ids[2]!, prev: -1 });
+    links.add(ids[2]!, { parent: ids[0]!, next: ids[4]!, prev: ids[0]! });
+    links.add(ids[4]!, { parent: ids[2]!, next: -1, prev: ids[2]! });
+
+    // Protect id 0 and 4
+    world.protectEntity(ids[0]!);
+    world.protectEntity(ids[4]!);
+
+    world.destroyEntity(ids[1]!);
+    world.destroyEntity(ids[3]!);
+
+    // Densify: live ids [0,2,4] should remap to [0,1,2]
+    const remap = world.densifyEntities();
+
+    const live = Array.from(world.entities.dense);
+    expect(live).toEqual([0, 1, 2]);
+
+    // Position rows track new entity ids
+    for (let i = 0; i < pos.size; i++) {
+      const e = pos.denseToEntity[i]!;
+      expect(e).toBeGreaterThanOrEqual(0);
+      expect(world.entities.isAlive(e)).toBe(true);
+    }
+
+    // Link fields remapped through densify
+    const lf = links.fields() as any;
+    // old 0 -> new 0, old 2 -> new 1, old 4 -> new 2
+    expect(lf.next[links.entityToDense[0]]).toBe(1);
+    expect(lf.parent[links.entityToDense[1]]).toBe(0);
+    expect(lf.next[links.entityToDense[1]]).toBe(2);
+    expect(lf.prev[links.entityToDense[1]]).toBe(0);
+    expect(lf.parent[links.entityToDense[2]]).toBe(1);
+    expect(lf.prev[links.entityToDense[2]]).toBe(1);
+
+    // Protected set remapped
+    const protRemapped = [remap[ids[0]!]!, remap[ids[4]!]!];
+    expect(protRemapped.every((p) => world.isEntityProtected(p))).toBe(true);
+  });
+
+  it("exports and imports a world (with and without densify)", () => {
+    const makeWorld = () => {
+      const w = new World({ initialCapacity: 2 });
+      const pos = w.register(positionDef, 2);
+      const vel = w.register(velocityDef, 2);
+      const a = w.createEntity();
+      const b = w.createEntity();
+      pos.add(a, { x: 1, y: 2 });
+      vel.add(a, { vx: 3, vy: 4 });
+      pos.add(b, { x: 5, y: 6 });
+      w.protectEntity(a);
+      return { w, pos, vel };
+    };
+
+    // 1) With densify (default)
+    {
+      const { w } = makeWorld();
+      const dump = w.export(); // densify = true by default
+
+      const w2 = new World({ initialCapacity: 1 });
+      // Re-register matching metas before import
+      w2.register(positionDef, 1);
+      w2.register(velocityDef, 1);
+
+      w2.import(dump);
+
+      // Same number of entities, stores, and protected ids
+      expect(w2.entities.size).toBe(w.entities.size);
+      expect(Array.from(w2.entities.dense)).toEqual(Array.from(w.entities.dense));
+      expect(Array.from(w2["entityEpoch"])).toHaveLength(w["entityEpoch"].length);
+
+      const p2 = w2.store("Position");
+      const v2 = w2.store("Velocity");
+      expect(p2.size).toBe(w.store("Position").size);
+      expect(v2.size).toBe(w.store("Velocity").size);
+    }
+
+    // 2) Without densify (sparse save shape)
+    {
+      const { w } = makeWorld();
+      // Create sparsity
+      const extra = w.createEntity();
+      w.destroyEntity(extra);
+
+      const dump = w.export({ densify: false });
+
+      const w2 = new World({ initialCapacity: 1 });
+      w2.register(positionDef, 1);
+      w2.register(velocityDef, 1);
+      w2.import(dump);
+
+      // Sparse allocator state preserved
+      expect(w2.entities.capacity).toBeGreaterThanOrEqual(w.entities.capacity);
+      expect(w2.entities.size).toBe(w.entities.size);
+      expect(Array.from(w2.entities.dense)).toEqual(Array.from(w.entities.dense));
+    }
   });
 });

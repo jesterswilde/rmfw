@@ -1,356 +1,169 @@
-import { World, NONE } from "../../src/ecs/core/index.js";
-import { saveScene, type RmfwSceneV1 } from "../../src/ecs/save.js";
-import { loadScene } from "../../src/ecs/load.js";
-import {
-  Transform,
-  TransformNode,
-  RenderNode,
-  ShapeLeaf,
-  Operation,
-} from "../../src/ecs/registry.js";
+// tests/ecs/saveLoad.test.ts
+import { World } from "../../src/ecs/core/world.js";
+import type { ComponentMeta, Def } from "../../src/ecs/interfaces.js";
+import { saveWorld, saveWorldToJSON, loadWorld, loadWorldFromJSON } from "../../src/ecs/saveLoad.js";
 
-const rebuildCalls: Array<{ name: string; hints?: number[] }> = [];
+type Vec2 = "x" | "y";
+type LinkKeys = "parent" | "next" | "prev";
 
-jest.mock("../../src/ecs/tree/tree.js", () => {
-  const actual = jest.requireActual("../../src/ecs/tree/tree.js");
-  return {
-    ...actual,
-    buildAllHierarchyTrees: (_world: unknown) => {
-      const map = new Map<string, { rebuildOrder: (hints?: number[]) => void }>();
-      for (const name of [TransformNode.meta.name, RenderNode.meta.name]) {
-        map.set(name, {
-          rebuildOrder: (hints?: number[]) => {
-            rebuildCalls.push({ name, hints: hints ? [...hints] : undefined });
-          },
-        });
-      }
-      return map;
-    },
-  };
-});
-
-const nodeDefaults = {
-  parent: NONE,
-  firstChild: NONE,
-  lastChild: NONE,
-  nextSibling: NONE,
-  prevSibling: NONE,
+const positionMeta: ComponentMeta<"Position", Vec2> = {
+  name: "Position",
+  fields: [
+    { key: "x", ctor: Float32Array, default: 0 },
+    { key: "y", ctor: Float32Array, default: 0 },
+  ],
 };
 
-beforeEach(() => {
-  rebuildCalls.length = 0;
-});
-
-type RegisteredStores = {
-  transform: ReturnType<World["register"]>;
-  transformNode: ReturnType<World["register"]>;
-  renderNode: ReturnType<World["register"]>;
-  shape: ReturnType<World["register"]>;
-  operation: ReturnType<World["register"]>;
+const linksMeta: ComponentMeta<"Links", LinkKeys> = {
+  name: "Links",
+  fields: [
+    { key: "parent", ctor: Int32Array, default: -1, link: true },
+    { key: "next",   ctor: Int32Array, default: -1, link: true },
+    { key: "prev",   ctor: Int32Array, default: -1, link: true },
+  ],
 };
 
-function registerAll(world: World): RegisteredStores {
-  return {
-    transform: world.register(Transform, 4),
-    transformNode: world.register(TransformNode, 4),
-    renderNode: world.register(RenderNode, 4),
-    shape: world.register(ShapeLeaf, 4),
-    operation: world.register(Operation, 4),
-  } as RegisteredStores;
-}
+const positionDef: Def<typeof positionMeta> = { meta: positionMeta } as const;
+const linksDef: Def<typeof linksMeta> = { meta: linksMeta } as const;
 
-function populateWorld(world: World) {
-  const stores = registerAll(world);
-  const root = world.createEntity();
-  const child = world.createEntity();
-  const leaf = world.createEntity();
+describe("Save/Load JSON", () => {
+  it("round-trip with densify=true compacts ids, remaps link fields, and preserves store data", () => {
+    // Build a world with sparse ids and a protected id
+    const w = new World({ initialCapacity: 2 });
+    const P = w.register(positionDef, 2);
+    const L = w.register(linksDef, 2);
 
-  stores.transform.add(root, { world_tx: 1, world_ty: 0, world_tz: 3 });
-  stores.transform.add(child, { world_tx: 4, world_ty: 0, world_tz: 6 });
-  stores.transform.add(leaf, { world_tx: 7, world_ty: 0, world_tz: 9 });
+    // Create 5 entities, remove some to force sparsity: live = {0,2,4}
+    const e0 = w.createEntity(); // 0
+    const e1 = w.createEntity(); // 1
+    const e2 = w.createEntity(); // 2
+    const e3 = w.createEntity(); // 3
+    const e4 = w.createEntity(); // 4
 
-  stores.transformNode.add(root, { ...nodeDefaults, firstChild: child, lastChild: child });
-  stores.transformNode.add(child, { ...nodeDefaults, parent: root, firstChild: leaf, lastChild: leaf });
-  stores.transformNode.add(leaf, { ...nodeDefaults, parent: child });
+    // Add components for the live set
+    P.add(e0, { x: 1, y: 2 });
+    P.add(e2, { x: 3, y: 4 });
+    P.add(e4, { x: 5, y: 6 });
 
-  stores.renderNode.add(root, { ...nodeDefaults, firstChild: child, lastChild: child });
-  stores.renderNode.add(child, { ...nodeDefaults, parent: root });
+    L.add(e0, { parent: -1, next: e2, prev: -1 });
+    L.add(e2, { parent: e0, next: e4, prev: e0 });
+    L.add(e4, { parent: e0, next: -1, prev: e2 });
 
-  stores.shape.add(leaf, { shapeType: 1, p0: 0.5, p1: 0.25, p2: 0, p3: 0, p4: 0, p5: 0 });
-  stores.operation.add(root, { opType: 0 });
-  stores.operation.add(child, { opType: 1 });
+    // Remove 1 and 3 to make sparsity
+    w.destroyEntity(e1);
+    w.destroyEntity(e3);
 
-  return { world, stores, entities: { root, child, leaf } };
-}
+    // Protect e0 (root-like)
+    w.protectEntity(e0);
 
-describe("saveScene", () => {
-  it("saves populated worlds with presence masks and remapped links", () => {
-    const { world } = populateWorld(new World({ initialCapacity: 8 }));
-    const scene = saveScene(world);
+    // Save with densify (default)
+    const json = saveWorldToJSON(w); // densify=true
 
-    expect(scene.entityCount).toBe(3);
-    const byName = new Map(scene.components.map((c) => [c.name, c]));
-    const transformNode = byName.get(TransformNode.meta.name)!;
-    const shape = byName.get(ShapeLeaf.meta.name)!;
+    // Load into a fresh world with same metas
+    const w2 = new World({ initialCapacity: 1 });
+    const P2 = w2.register(positionDef, 1);
+    const L2 = w2.register(linksDef, 1);
 
-    expect(transformNode.present).toEqual([1, 1, 1]);
-    expect(shape.present).toEqual([0, 0, 1]);
+    loadWorldFromJSON(w2, json);
 
-    const parentColumn = transformNode.columns![transformNode.fieldOrder!.indexOf("parent")!];
-    expect(parentColumn).toEqual([NONE, 0, 1]);
+    // After densify: live ids must be 0,1,2 (ascending old-id order mapping: 0->0, 2->1, 4->2)
+    expect(w2.entities.size).toBe(3);
+    expect(Array.from(w2.entities.dense)).toEqual([0, 1, 2]);
 
-    const transform = byName.get(Transform.meta.name)!;
-    const worldTxColumn = transform.columns![transform.fieldOrder!.indexOf("world_tx")!];
-    expect(worldTxColumn).toEqual([1, 4, 7]);
-    const worldTzColumn = transform.columns![transform.fieldOrder!.indexOf("world_tz")!];
-    expect(worldTzColumn).toEqual([3, 6, 9]);
+    // Protected set remapped (old 0 -> new 0)
+    expect(w2.isEntityProtected(0)).toBe(true);
+    expect(w2.isEntityProtected(1)).toBe(false);
+    expect(w2.isEntityProtected(2)).toBe(false);
 
-    expect(scene.components.find((c) => c.name === RenderNode.meta.name)).toBeDefined();
-    expect(scene.components.find((c) => c.name === Operation.meta.name)?.present).toEqual([1, 1, 0]);
+    // Position data preserved and aligned to new dense ids
+    const pf = P2.fields();
+    // Map new id -> expected values (from original e0,e2,e4)
+    // new 0 (old 0) -> (1,2)
+    // new 1 (old 2) -> (3,4)
+    // new 2 (old 4) -> (5,6)
+    const e0Row = P2.denseIndexOf(0);
+    const e1Row = P2.denseIndexOf(1);
+    const e2Row = P2.denseIndexOf(2);
+    expect(pf.x[e0Row]).toBeCloseTo(1);
+    expect(pf.y[e0Row]).toBeCloseTo(2);
+    expect(pf.x[e1Row]).toBeCloseTo(3);
+    expect(pf.y[e1Row]).toBeCloseTo(4);
+    expect(pf.x[e2Row]).toBeCloseTo(5);
+    expect(pf.y[e2Row]).toBeCloseTo(6);
+
+    // Links must be remapped to compact ids
+    const lf = L2.fields() as any;
+    // For new ids (0,1,2), we expect a simple chain 0 -> 1 -> 2 with parent of 1 and 2 equal to 0
+    expect(lf.next[L2.entityToDense[0]]).toBe(1);
+    expect(lf.parent[L2.entityToDense[1]]).toBe(0);
+    expect(lf.next[L2.entityToDense[1]]).toBe(2);
+    expect(lf.prev[L2.entityToDense[1]]).toBe(0);
+    expect(lf.parent[L2.entityToDense[2]]).toBe(0);
+    expect(lf.prev[L2.entityToDense[2]]).toBe(1);
+    expect(lf.next[L2.entityToDense[2]]).toBe(-1);
+
+    // Epoch buffers length sanity (entityEpoch is a live view over allocator buffer)
+    expect(w2.entityEpoch.length).toBeGreaterThanOrEqual(3);
   });
 
-  it("drops all-default columns when requested", () => {
-    const { world } = populateWorld(new World({ initialCapacity: 8 }));
-    const scene = saveScene(world, { dropDefaultColumns: true });
-    const transform = scene.components.find((c) => c.name === Transform.meta.name)!;
+  it("round-trip with densify=false preserves allocator and store buffers exactly", () => {
+    const w = new World({ initialCapacity: 2 });
+    const P = w.register(positionDef, 2);
+    const L = w.register(linksDef, 2);
 
-    expect(transform.fieldOrder).toContain("world_tx");
-    expect(transform.fieldOrder).not.toContain("world_ty");
-    expect(transform.fieldOrder).not.toContain("local_r00");
-  });
+    const ids = [w.createEntity(), w.createEntity(), w.createEntity(), w.createEntity(), w.createEntity()];
+    expect(ids).toEqual([0, 1, 2, 3, 4]);
 
-  it("includes root hints when requested", () => {
-    const { world } = populateWorld(new World({ initialCapacity: 8 }));
-    const scene = saveScene(world, { includeRoots: true });
+    // Sparse: remove 1 and 3
+    w.destroyEntity(1);
+    w.destroyEntity(3);
 
-    expect(scene.roots?.transform).toEqual([0]);
-    expect(scene.roots?.render).toEqual([0]);
-  });
+    // Live are [0,2,4] in some dense order (allocator dense)
+    P.add(0, { x: 10, y: 20 });
+    P.add(2, { x: 30, y: 40 });
+    P.add(4, { x: 50, y: 60 });
 
-  it("saves empty worlds without component blocks", () => {
-    const world = new World({ initialCapacity: 2 });
-    registerAll(world);
-    const scene = saveScene(world);
-    expect(scene.entityCount).toBe(0);
-    expect(scene.components).toHaveLength(0);
-  });
+    L.add(0, { parent: -1, next: 2, prev: -1 });
+    L.add(2, { parent: 0, next: 4, prev: 0 });
+    L.add(4, { parent: 0, next: -1, prev: 2 });
 
-  it("omits missing component metas without throwing", () => {
-    const world = new World({ initialCapacity: 2 });
-    world.register(Transform, 2);
-    expect(() => saveScene(world)).not.toThrow();
-    const scene = saveScene(world);
-    expect(scene.components.every((c) => c.name === Transform.meta.name)).toBe(true);
-  });
-});
+    // Protect 0
+    w.protectEntity(0);
 
-describe("loadScene", () => {
-  it("recreates entities and component rows", () => {
-    const { world } = populateWorld(new World({ initialCapacity: 8 }));
-    const scene = saveScene(world);
+    // Save without densify
+    const snap = saveWorld(w, { densify: false });
 
-    const targetWorld = new World({ initialCapacity: 1 });
-    const stores = registerAll(targetWorld);
-    const summary = loadScene(targetWorld, scene);
+    // New world, register metas and load
+    const w2 = new World({ initialCapacity: 1 });
+    const P2 = w2.register(positionDef, 1);
+    const L2 = w2.register(linksDef, 1);
 
-    expect(summary.entityCount).toBe(scene.entityCount);
-    expect(targetWorld.entities.size).toBe(scene.entityCount);
+    loadWorld(w2, snap);
 
-    for (const entity of [0, 1, 2]) {
-      expect(stores.transform.has(entity)).toBe(true);
-      expect(stores.transformNode.has(entity)).toBe(true);
-    }
+    // Allocator arrays equal
+    expect(Array.from(w2.entities.dense)).toEqual(Array.from(snap.allocator._dense));
+    expect(w2.entities.size).toBe(w.entities.size);
+    expect(w2.entities.capacity).toBeGreaterThanOrEqual(w.entities.capacity);
 
-    const tf = stores.transform.fields();
-    const rowLeaf = stores.transform.denseIndexOf(2);
-    expect(tf.world_tx[rowLeaf]).toBeCloseTo(7);
-    expect(tf.world_tz[rowLeaf]).toBeCloseTo(9);
+    // Protected ids same (0 is still protected)
+    expect(w2.isEntityProtected(0)).toBe(true);
 
-    const nodeCols = stores.transformNode.fields();
-    expect(nodeCols.parent[stores.transformNode.denseIndexOf(0)]).toBe(NONE);
-    expect(nodeCols.parent[stores.transformNode.denseIndexOf(1)]).toBe(0);
-    expect(nodeCols.parent[stores.transformNode.denseIndexOf(2)]).toBe(1);
-  });
+    // Store mappings preserved (no remap)
+    expect(Array.from(P2.denseToEntity)).toEqual(Array.from(snap.components.Position.denseToEntity));
+    expect(Array.from(P2.entityToDense)).toEqual(Array.from(snap.components.Position.entityToDense));
+    expect(Array.from(L2.denseToEntity)).toEqual(Array.from(snap.components.Links.denseToEntity));
+    expect(Array.from(L2.entityToDense)).toEqual(Array.from(snap.components.Links.entityToDense));
 
-  it("fills defaults when columns are omitted", () => {
-    const world = new World({ initialCapacity: 2 });
-    const stores = registerAll(world);
-    const scene: RmfwSceneV1 = {
-      version: 1,
-      project: "rmfw",
-      entityCount: 2,
-      components: [
-        { name: Transform.meta.name, present: [1, 1] },
-      ],
-    };
+    // Field arrays preserved exactly
+    const pf2 = P2.fields();
+    const lf2 = L2.fields() as any;
+    const savedP = snap.components.Position.fields;
+    const savedL = snap.components.Links.fields;
 
-    loadScene(world, scene);
-
-    const tf = stores.transform.fields();
-    expect(tf.local_r00[stores.transform.denseIndexOf(0)]).toBe(1);
-    expect(tf.local_r11[stores.transform.denseIndexOf(1)]).toBe(1);
-    expect(tf.world_tx[stores.transform.denseIndexOf(1)]).toBe(0);
-  });
-
-  it("ignores unknown components", () => {
-    const world = new World({ initialCapacity: 2 });
-    registerAll(world);
-    const scene: RmfwSceneV1 = {
-      version: 1,
-      project: "rmfw",
-      entityCount: 1,
-      components: [
-        { name: "Unknown", present: [1], fieldOrder: ["value"], columns: [[5]] },
-      ],
-    };
-
-    expect(() => loadScene(world, scene)).not.toThrow();
-    expect(world.entities.size).toBe(1);
-  });
-
-  it("remaps link columns and respects NONE values", () => {
-    const world = new World({ initialCapacity: 8 });
-    const { world: populated } = populateWorld(new World({ initialCapacity: 8 }));
-    const scene = saveScene(populated);
-
-    registerAll(world);
-    loadScene(world, scene);
-
-    const nodeStore = world.store(TransformNode.meta.name);
-    const parentColumn = nodeStore.fields().parent;
-    expect(parentColumn[nodeStore.denseIndexOf(0)]).toBe(NONE);
-    expect(parentColumn[nodeStore.denseIndexOf(1)]).toBe(0);
-  });
-
-  it("grows stores as needed during pre-allocation", () => {
-    const world = new World({ initialCapacity: 1 });
-    const stores = registerAll(world);
-    const scene: RmfwSceneV1 = {
-      version: 1,
-      project: "rmfw",
-      entityCount: 10,
-      components: [
-        {
-          name: Transform.meta.name,
-          present: new Array(10).fill(1),
-          fieldOrder: ["world_tx"],
-          columns: [Array.from({ length: 10 }, (_, i) => i)],
-        },
-      ],
-    };
-
-    loadScene(world, scene);
-
-    expect(stores.transform.capacity).toBeGreaterThanOrEqual(10);
-    const tf = stores.transform.fields();
-    for (let i = 0; i < 10; i++) {
-      expect(tf.world_tx[stores.transform.denseIndexOf(i)]).toBe(i);
-    }
-  });
-
-  it("passes legacy root hints to hierarchy rebuilders", () => {
-    const world = new World({ initialCapacity: 4 });
-    registerAll(world);
-    const scene: RmfwSceneV1 = {
-      version: 1,
-      project: "rmfw",
-      entityCount: 2,
-      components: [
-        {
-          name: TransformNode.meta.name,
-          present: [1, 1],
-          fieldOrder: ["parent"],
-          columns: [[NONE, 0]],
-        },
-        {
-          name: RenderNode.meta.name,
-          present: [1, 1],
-          fieldOrder: ["parent"],
-          columns: [[NONE, NONE]],
-        },
-      ],
-      roots: { transform: [0], render: [1] },
-    };
-
-    loadScene(world, scene);
-
-    expect(rebuildCalls).toEqual([
-      { name: TransformNode.meta.name, hints: [0] },
-      { name: RenderNode.meta.name, hints: [1] },
-    ]);
-  });
-
-  it("handles map-based root hints", () => {
-    const world = new World({ initialCapacity: 4 });
-    registerAll(world);
-    const scene: RmfwSceneV1 = {
-      version: 1,
-      project: "rmfw",
-      entityCount: 3,
-      components: [
-        {
-          name: TransformNode.meta.name,
-          present: [1, 1, 1],
-          fieldOrder: ["parent"],
-          columns: [[NONE, 0, 1]],
-        },
-        {
-          name: RenderNode.meta.name,
-          present: [1, 0, 1],
-          fieldOrder: ["parent"],
-          columns: [[NONE, NONE]],
-        },
-      ],
-      roots: {
-        [TransformNode.meta.name]: [0, 2],
-        [RenderNode.meta.name]: [0],
-      },
-    };
-
-    loadScene(world, scene);
-
-    expect(rebuildCalls).toEqual([
-      { name: TransformNode.meta.name, hints: [0, 2] },
-      { name: RenderNode.meta.name, hints: [0] },
-    ]);
-  });
-
-  it("invokes rebuilders without hints when none are provided", () => {
-    const world = new World({ initialCapacity: 2 });
-    registerAll(world);
-    const scene: RmfwSceneV1 = {
-      version: 1,
-      project: "rmfw",
-      entityCount: 1,
-      components: [
-        {
-          name: TransformNode.meta.name,
-          present: [1],
-          fieldOrder: ["parent"],
-          columns: [[NONE]],
-        },
-      ],
-    };
-
-    loadScene(world, scene);
-
-    expect(rebuildCalls).toEqual([
-      { name: TransformNode.meta.name, hints: undefined },
-      { name: RenderNode.meta.name, hints: undefined },
-    ]);
-  });
-});
-
-describe("save/load round trip", () => {
-  it("round-trips scenes while preserving hierarchy links", () => {
-    const { world } = populateWorld(new World({ initialCapacity: 8 }));
-    const original = saveScene(world, { includeRoots: true });
-
-    const targetWorld = new World({ initialCapacity: 1 });
-    registerAll(targetWorld);
-    loadScene(targetWorld, original);
-    const reSaved = saveScene(targetWorld, { includeRoots: true });
-
-    expect(reSaved).toEqual(original);
+    expect(Array.from(pf2.x)).toEqual(savedP.x);
+    expect(Array.from(pf2.y)).toEqual(savedP.y);
+    expect(Array.from(lf2.parent)).toEqual(savedL.parent);
+    expect(Array.from(lf2.next)).toEqual(savedL.next);
+    expect(Array.from(lf2.prev)).toEqual(savedL.prev);
   });
 });

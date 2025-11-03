@@ -27,6 +27,17 @@ export type StoreView<N extends string, K extends string> = {
   remove(entity: number): boolean;
 };
 
+export type ComponentStoreExport = {
+  name: string;
+  size: number;
+  capacity: number;
+  storeEpoch: number;
+  entityToDense: number[];
+  denseToEntity: number[];
+  rowVersion: number[];
+  fields: Record<string, number[]>;
+};
+
 export class ComponentStore<M extends ComponentMeta> {
   readonly name: M["name"];
   readonly meta: M;
@@ -174,6 +185,7 @@ export class ComponentStore<M extends ComponentMeta> {
       const v = patch[k as KeysOf<M>];
       if (v == null) continue;
       const column = (this._fields as any)[k] as TypedArrayLike;
+      // Only write if the value actually changes
       if (column[denseIndex] !== (v as any)) {
         column[denseIndex] = v as any;
         updated = true;
@@ -218,5 +230,100 @@ export class ComponentStore<M extends ComponentMeta> {
 
     this.storeEpoch++;
     return true;
+  }
+
+  /**
+   * Remap entity ids in mappings and rewrite link fields according to `remap[oldId] = newId` (>=0).
+   * Dead/unmapped ids must have remap[...] < 0. NONE (-1) stays -1.
+   */
+  remapEntitiesAndLinks(remap: Int32Array): void {
+    // 1) Rewrite denseToEntity to new ids, track max id to size entityToDense
+    let maxNewId = -1;
+    for (let i = 0; i < this._size; i++) {
+      const oldId = this._denseToEntity[i]!;
+      const mapped = oldId >= 0 && oldId < remap.length ? remap[oldId]! : -1;
+      const newId = mapped >= 0 ? mapped : oldId; // if unmapped, keep old (supports non-densify remaps)
+      this._denseToEntity[i] = newId;
+      if (newId > maxNewId) maxNewId = newId;
+    }
+
+    // 2) Rebuild entityToDense with enough capacity for new ids
+    if (maxNewId >= this._entityToDense.length) {
+      const n = maxNewId + 1;
+      const next = new Int32Array(n).fill(-1);
+      next.set(this._entityToDense);
+      this._entityToDense = next;
+    }
+    // Clear old indices
+    this._entityToDense.fill(-1);
+    for (let i = 0; i < this._size; i++) {
+      const e = this._denseToEntity[i]!;
+      if (e >= 0) this._entityToDense[e] = i;
+    }
+
+    // 3) Rewrite link fields
+    for (const f of this.meta.fields) {
+      if (!f.link) continue;
+      const col = (this._fields as any)[f.key] as Int32Array;
+      for (let i = 0; i < this._size; i++) {
+        const old = col[i]! | 0;
+        if (old < 0) continue; // NONE
+        const mapped = old < remap.length ? remap[old]! : -1;
+        if (mapped >= 0) col[i] = mapped;
+      }
+    }
+
+    // 4) Bump all row versions once; bump store epoch
+    for (let i = 0; i < this._size; i++) {
+      this.rowVersion[i] = (this.rowVersion[i]! + 1) >>> 0;
+    }
+    this.storeEpoch++;
+  }
+
+  export(): ComponentStoreExport {
+    const fields: Record<string, number[]> = Object.create(null);
+    for (const f of this.meta.fields) {
+      const col = (this._fields as any)[f.key] as TypedArrayLike;
+      fields[f.key] = Array.from(col);
+    }
+    return {
+      name: this.name,
+      size: this._size,
+      capacity: this._capacity,
+      storeEpoch: this.storeEpoch,
+      entityToDense: Array.from(this._entityToDense),
+      denseToEntity: Array.from(this._denseToEntity),
+      rowVersion: Array.from(this.rowVersion),
+      fields,
+    };
+  }
+
+  import(data: ComponentStoreExport): void {
+    // Capacity and basic arrays
+    this._capacity = Math.max(1, data.capacity | 0);
+    this._size = data.size | 0;
+
+    // Resize and load mappings/epochs
+    this._entityToDense = new Int32Array(this._capacity).fill(-1);
+    this._denseToEntity = new Int32Array(this._capacity).fill(-1);
+    this.rowVersion = new Uint32Array(this._capacity);
+
+    this._entityToDense.set(Int32Array.from(data.entityToDense));
+    this._denseToEntity.set(Int32Array.from(data.denseToEntity));
+    this.rowVersion.set(Uint32Array.from(data.rowVersion));
+    this.storeEpoch = data.storeEpoch | 0;
+
+    // Rebuild field columns with exact capacity and copy values
+    const nFields: any = {};
+    for (const f of this.meta.fields) {
+      const ctor = f.ctor as any;
+      const arr = new ctor(this._capacity);
+      const src = data.fields[f.key] ?? [];
+      for (let i = 0; i < Math.min(src.length, this._capacity); i++) {
+        (arr as any)[i] = src[i] as number;
+      }
+      nFields[f.key] = arr;
+    }
+    this._fields = nFields;
   }
 }

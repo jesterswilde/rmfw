@@ -1,33 +1,42 @@
-# Overview
-`ComponentStore` holds the data for a component using SoA (Structure of Array) typed arrays. It is responsible for mapping an entity to that component's data lives in the SoA. It offers helpers to add, change, or remove component rows while keeping version counters (epochs) up to date.
+# ComponentStore
+
+## Overview
+`ComponentStore` holds component data in a Structure of Arrays (SoA) layout. It manages the mapping between entities and dense rows, tracks per-row and per-store version epochs, and now supports export/import for persistence along with full entity remapping. Link fields are transparently rewritten when entity IDs change, enabling world-level densification and save/load cycles.
 
 ## API
-- `constructor(meta, initialCapacity?)` – builds typed columns for every field declared in the meta, primed with the requested capacity (default 256).
-- `size`, `capacity`, `entityToDense`, `denseToEntity`, `rowVersion`, `storeEpoch` – expose store statistics and the mapping arrays.
-- `fields()` – returns the typed column map keyed by field name.
-- `has(entity)` / `denseIndexOf(entity)` – membership queries for sparse entity ids.
-- `add(entity, initialValues?)` – creates or overwrites the row for an entity, filling defaults before applying overrides, bumps epochs, and returns the dense index.
-- `update(entity, patch)` – applies number or link patches to an existing row, bumping epochs only when a value changes.
-- `remove(entity)` – swap-removes the row, updates mapping tables, clears dense slots, and increments the store epoch.
+- `constructor(meta, initialCapacity?)` – builds typed arrays for all fields in the component meta and initializes capacity (default 256).
+- `size`, `capacity`, `entityToDense`, `denseToEntity`, `rowVersion`, `storeEpoch` – expose store stats and mapping/epoch arrays.
+- `fields()` – returns the column map keyed by field names.
+- `has(entity)` / `denseIndexOf(entity)` – report membership and dense index for an entity.
+- `add(entity, init?)` – creates or overwrites the entity’s row, applying defaults and overrides. Increments the row’s version and the store’s epoch.
+- `update(entity, patch)` – modifies only changed fields. Returns `true` if something changed (and bumps epochs), or `false` if values were identical.
+- `remove(entity)` – swap-removes the entity’s row, fixes mappings, clears the trailing slot, and increments `storeEpoch`.
+- `remapEntitiesAndLinks(remap: Int32Array)` – rewrites entity IDs using the provided map. Remaps all link fields (where `meta.fields[i].link === true`) while leaving scalar fields untouched.
+- `export()` – returns a full JSON-safe snapshot of the store’s data, including mappings, epochs, and every field array.
+- `import(data)` – reconstructs the store state from an export, restoring sizes, arrays, and epochs exactly.
 
 ## Testing Plan
-### Construction and Growth
-- Constructing a store builds typed columns for every meta field filled with default values or zero.
-- Adding enough rows past the starting capacity resizes every column, mapping array, and version table without losing data.
+### Construction & Growth
+- Instantiation builds correctly typed columns sized to capacity.
+- Growth preserves field data and mapping integrity.
 
-### Add Behaviour
-- Adding a new entity places it in the next dense slot, seeds defaults, applies overrides, and bumps the store epoch once.
-- Adding an existing entity rewrites the same dense slot, applies overrides, and bumps the store epoch once without creating a new row.
+### Add & Update Behavior
+- Adding a new entity fills defaults, applies overrides, and bumps epochs once.
+- Re-adding the same entity overwrites its row in place and bumps epochs once.
+- Updating with identical values returns `false` and leaves epochs unchanged.
+- Updating with changed values returns `true` and bumps both row and store epochs.
 
-### Update Behaviour
-- Updating a row changes only the fields in the patch, leaves others alone, and bumps the row version and store epoch when something actually changes.
-- Updating a missing entity returns false and leaves all columns and counters untouched.
+### Removal Behavior
+- Removing a live entity swap-compacts the store, clears the last slot, and increments `storeEpoch`.
+- Removing a missing entity returns `false` and makes no changes.
 
-### Remove Behaviour
-- Removing a present entity updates mappings, swaps in the last row when needed, clears the trailing slot, and bumps the store epoch once.
-- Removing an absent entity returns false and leaves the store state unchanged.
+### Remap Behavior
+- After `remapEntitiesAndLinks`:
+  - All live entities and link fields follow the new ID mapping.
+  - Non-link numeric data is unchanged.
+  - `NONE` links remain `NONE`.
+  - Store epoch increments once and all affected rows increment their row versions.
 
-### Consistency Checks
-- After mixed adds, updates, and removes, `size` matches the count of entities that return true from `has`.
-- Dense indices and entity ids remain inverses for all live rows.
-- Typed columns keep the expected values for each live dense index after any sequence of operations.
+### Export/Import Round Trip
+- Exporting and importing yield bit-identical results for all arrays, mappings, and epochs.
+- Works with both dense and sparse states (pre- and post-`densifyEntities()`).

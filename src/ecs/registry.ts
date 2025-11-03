@@ -1,13 +1,10 @@
 // src/ecs/registry.ts
-// Registry with self-describing component metadata (ordered fields, defaults, link flags)
-
 import { ShapeType } from "../entityDef.js";
 import { Op } from "../interfaces.js";
 import { NONE, World } from "./core/index.js";
 import type { FieldMeta, Def, InitFromMeta } from "./interfaces.js";
 import { TransformTree } from "./tree/transformTree.js";
-import { Tree } from "./tree/tree.js";
-
+import { registerHierarchyRehydrater } from "./tree/rehydraters.js";
 
 /** Factory to preserve literal name & field keys. */
 export function defineMeta<
@@ -17,12 +14,11 @@ export function defineMeta<
   return meta as Readonly<{ name: N; fields: F }>;
 }
 
-// ----- Component metas (each field is a scalar = 1 column) -----
+// ----- Component metas -----
 
 export const TransformMeta = defineMeta({
   name: "Transform",
   fields: [
-    // Local 3x4 (row-major): identity defaults
     { key: "local_r00", ctor: Float32Array, default: 1 },
     { key: "local_r01", ctor: Float32Array, default: 0 },
     { key: "local_r02", ctor: Float32Array, default: 0 },
@@ -38,7 +34,6 @@ export const TransformMeta = defineMeta({
     { key: "local_r22", ctor: Float32Array, default: 1 },
     { key: "local_tz",  ctor: Float32Array, default: 0 },
 
-    // World 3x4 (row-major) — default to identity
     { key: "world_r00", ctor: Float32Array, default: 1 },
     { key: "world_r01", ctor: Float32Array, default: 0 },
     { key: "world_r02", ctor: Float32Array, default: 0 },
@@ -54,7 +49,6 @@ export const TransformMeta = defineMeta({
     { key: "world_r22", ctor: Float32Array, default: 1 },
     { key: "world_tz",  ctor: Float32Array, default: 0 },
 
-    // Inverse World 3x4 (row-major) — default to identity
     { key: "inv_r00", ctor: Float32Array, default: 1 },
     { key: "inv_r01", ctor: Float32Array, default: 0 },
     { key: "inv_r02", ctor: Float32Array, default: 0 },
@@ -70,24 +64,19 @@ export const TransformMeta = defineMeta({
     { key: "inv_r22", ctor: Float32Array, default: 1 },
     { key: "inv_tz",  ctor: Float32Array, default: 0 },
 
-    // Dirty bit (kept in store; not serialized in v1)
     { key: "dirty", ctor: Int32Array, default: 0 },
   ] as const,
 });
 
-/** Root object for Transform, fully typed to require all fields. */
 export const TransfromRoot: InitFromMeta<typeof TransformMeta> = {
-  // Local = Identity
   local_r00: 1, local_r01: 0, local_r02: 0, local_tx: 0,
   local_r10: 0, local_r11: 1, local_r12: 0, local_ty: 0,
   local_r20: 0, local_r21: 0, local_r22: 1, local_tz: 0,
 
-  // World = Identity
   world_r00: 1, world_r01: 0, world_r02: 0, world_tx: 0,
   world_r10: 0, world_r11: 1, world_r12: 0, world_ty: 0,
   world_r20: 0, world_r21: 0, world_r22: 1, world_tz: 0,
 
-  // Inverse = Identity
   inv_r00: 1, inv_r01: 0, inv_r02: 0, inv_tx: 0,
   inv_r10: 0, inv_r11: 1, inv_r12: 0, inv_ty: 0,
   inv_r20: 0, inv_r21: 0, inv_r22: 1, inv_tz: 0,
@@ -98,11 +87,11 @@ export const TransfromRoot: InitFromMeta<typeof TransformMeta> = {
 export const TransformNodeMeta = defineMeta({
   name: "TransformNode",
   fields: [
-    { key: "parent",      ctor: Int32Array, default: NONE, link: true }, // -1 if root
-    { key: "firstChild",  ctor: Int32Array, default: NONE, link: true }, // head of child list
-    { key: "lastChild",   ctor: Int32Array, default: NONE, link: true }, // tail of child list (O(1) append)
-    { key: "nextSibling", ctor: Int32Array, default: NONE, link: true }, // next sibling
-    { key: "prevSibling", ctor: Int32Array, default: NONE, link: true }, // prev sibling (O(1) detach)
+    { key: "parent",      ctor: Int32Array, default: NONE, link: true },
+    { key: "firstChild",  ctor: Int32Array, default: NONE, link: true },
+    { key: "lastChild",   ctor: Int32Array, default: NONE, link: true },
+    { key: "nextSibling", ctor: Int32Array, default: NONE, link: true },
+    { key: "prevSibling", ctor: Int32Array, default: NONE, link: true },
   ] as const,
 });
 
@@ -111,7 +100,7 @@ export const RenderNodeMeta = defineMeta({
   fields: [
     { key: "parent",      ctor: Int32Array, default: NONE, link: true },
     { key: "firstChild",  ctor: Int32Array, default: NONE, link: true },
-    { key: "lastChild",   ctor: Int32Array, default: NONE, link: true }, // tail of child list (O(1) append)
+    { key: "lastChild",   ctor: Int32Array, default: NONE, link: true },
     { key: "nextSibling", ctor: Int32Array, default: NONE, link: true },
     { key: "prevSibling", ctor: Int32Array, default: NONE, link: true },
   ] as const,
@@ -120,7 +109,7 @@ export const RenderNodeMeta = defineMeta({
 export const ShapeMeta = defineMeta({
   name: "ShapeLeaf",
   fields: [
-    { key: "shapeType", ctor: Int32Array,   default: 0 }, // renderer interprets
+    { key: "shapeType", ctor: Int32Array,   default: 0 },
     { key: "p0",        ctor: Float32Array, default: 0 },
     { key: "p1",        ctor: Float32Array, default: 0 },
     { key: "p2",        ctor: Float32Array, default: 0 },
@@ -130,30 +119,32 @@ export const ShapeMeta = defineMeta({
   ] as const,
 });
 
-
 export const OperationMeta = defineMeta({
   name: "Operation",
   fields: [
-    { key: "opType", ctor: Int32Array, default: 0 }, // union / subtract / intersect...
+    { key: "opType", ctor: Int32Array, default: 0 },
   ] as const,
 });
 
-export const OpRoot: InitFromMeta<typeof OperationMeta> = {
-  opType: Op.ReduceUnion
-}
+export const OpRoot: InitFromMeta<typeof OperationMeta> = { opType: Op.ReduceUnion };
 
-// Convenient defs (typed)
 export const Transform:     Def<typeof TransformMeta>     = { meta: TransformMeta };
 export const TransformNode: Def<typeof TransformNodeMeta> = { meta: TransformNodeMeta };
 export const RenderNode:    Def<typeof RenderNodeMeta>    = { meta: RenderNodeMeta };
-export const ShapeLeaf:     Def<typeof ShapeMeta>     = { meta: ShapeMeta };
+export const ShapeLeaf:     Def<typeof ShapeMeta>         = { meta: ShapeMeta };
 export const Operation:     Def<typeof OperationMeta>     = { meta: OperationMeta };
+
+// Register a TransformTree-specific rehydrater for TransformNode.
+registerHierarchyRehydrater(TransformNodeMeta.name, (world) => {
+  // Use the transform-aware rehydrate path via the class’ inherited static method.
+  (TransformTree as any).rehydrate(world, TransformMeta, TransformNodeMeta);
+});
 
 // ----- Registry setup helper -----
 export function initWorld(cfg?: { initialCapacity?: number }) {
   const world = new World({ initialCapacity: cfg?.initialCapacity ?? 1024 });
 
-  new TransformTree(world, TransformNodeMeta, TransfromRoot)
+  new TransformTree(world, TransformNodeMeta, TransfromRoot);
   world.register(RenderNode,    256);
   world.register(ShapeLeaf,     256);
   world.register(Operation,     256);

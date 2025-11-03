@@ -1,5 +1,6 @@
-// src/ecs/trees.ts
+// src/ecs/tree/tree.ts
 import { NONE, type StoreOf, type World } from "../core/index.js";
+import { registerHierarchyRehydrater, setDefaultHierarchyRehydrater } from "./rehydraters.js";
 
 /** Explicit shape of the hierarchical node columns in a SoA store. */
 interface NodeColumns {
@@ -19,7 +20,6 @@ export function isHierarchyStore(store: NodeStore): boolean {
     | undefined;
   if (!m || !Array.isArray(m.fields)) return false;
 
-  // Require all five links in the Phase-2 schema.
   const need = new Set(["parent", "firstChild", "lastChild", "nextSibling", "prevSibling"]);
   let ok = 0;
   for (const f of m.fields) {
@@ -36,7 +36,6 @@ export function nodeColumns(store: NodeStore): NodeColumns {
   return store.fields() as unknown as NodeColumns;
 }
 
-/** Returns true if maybeAncestor is (strict) ancestor of node. */
 export function isAncestor(nodeStore: NodeStore, maybeAncestor: number, node: number): boolean {
   if (maybeAncestor === node || maybeAncestor === NONE || node === NONE) return false;
 
@@ -61,7 +60,6 @@ export function isAncestor(nodeStore: NodeStore, maybeAncestor: number, node: nu
   return false;
 }
 
-/** detach from current parent/sibling list, if any. */
 export function detachFromParent(nodeStore: NodeStore, entityId: number) {
   const cols = nodeColumns(nodeStore);
   const row = nodeStore.denseIndexOf(entityId);
@@ -95,7 +93,6 @@ export function detachFromParent(nodeStore: NodeStore, entityId: number) {
   cols.nextSibling[row] = NONE;
 }
 
-/** append child at end  */
 export function appendChildAtEnd(nodeStore: NodeStore, parentEntityId: number, childEntityId: number) {
   const cols = nodeColumns(nodeStore);
   const pRow = nodeStore.denseIndexOf(parentEntityId);
@@ -118,15 +115,11 @@ export function appendChildAtEnd(nodeStore: NodeStore, parentEntityId: number, c
   cols.parent[cRow] = parentEntityId | 0;
 }
 
-/** Compute a deterministic DFS order for the given hierarchy store.  */
 function computeDFSOrder(nodeStore: NodeStore, explicitRootEntityId: number): Int32Array {
   const cols = nodeColumns(nodeStore);
   const ordered: number[] = [];
-
-  // Start from the single root (row 0’s entity id).
   const root = explicitRootEntityId | 0;
 
-  // Single stack + isPopping enter/leave walk.
   let stack = new Int32Array(64);
   const ensure = (needTop: number) => {
     if (needTop < stack.length) return;
@@ -156,9 +149,7 @@ function computeDFSOrder(nodeStore: NodeStore, explicitRootEntityId: number): In
     }
 
     if (!isPopping) {
-      // ENTER node
       ordered.push(e);
-
       const fc = cols.firstChild[row]! | 0;
       if (fc !== NONE) {
         const nextTop = top + 1;
@@ -168,7 +159,6 @@ function computeDFSOrder(nodeStore: NodeStore, explicitRootEntityId: number): In
         isPopping = false;
         continue;
       }
-
       isPopping = true;
       continue;
     }
@@ -186,9 +176,8 @@ function computeDFSOrder(nodeStore: NodeStore, explicitRootEntityId: number): In
   return Int32Array.from(ordered);
 }
 
-/** Base class: single-root tree that binds a data store and a node store. */
 export class Tree {
-  readonly componentName: string; // node component name
+  readonly componentName: string;
   protected world: World;
   protected nodeStore: NodeStore;
   protected dataStore: DataStore;
@@ -196,13 +185,6 @@ export class Tree {
   protected _epoch = 0;
   protected readonly rootEntity: number;
 
-  /**
-   * Construct a single-root tree:
-   * - Registers the data and node metas (throws if already registered).
-   * - Creates a new entity for the root.
-   * - Adds data row 0 with provided rootData and node row 0 with parent = NONE.
-   * - Protects the root entity in the World (cannot be deleted).
-   */
   constructor(
     world: World,
     dataMeta: Readonly<{ name: string; fields: readonly any[] }>,
@@ -211,7 +193,6 @@ export class Tree {
   ) {
     this.world = world;
 
-    // Register components (error if already registered).
     const dataDef = { meta: dataMeta } as const;
     const nodeDef = { meta: nodeMeta } as const;
 
@@ -225,21 +206,18 @@ export class Tree {
       throw new Error("Tree creation requires empty stores (row 0 reserved for root)");
     }
 
-    // Create a single root entity, shared by both stores at dense row 0.
     const root = world.createEntity();
     dataStore.add(root, rootData as any);
     nodeStore.add(root, {
       parent: NONE, firstChild: NONE, lastChild: NONE, nextSibling: NONE, prevSibling: NONE,
     } as any);
 
-    // Verify row 0 for both stores belongs to the same entity.
     const d0 = dataStore.denseToEntity[0]!;
     const n0 = nodeStore.denseToEntity[0]!;
     if (d0 !== root || n0 !== root) {
       throw new Error("Root must occupy dense row 0 in both data and node stores");
     }
 
-    // Protect root from deletion.
     world.protectEntity(root);
 
     this.nodeStore = nodeStore;
@@ -253,6 +231,45 @@ export class Tree {
     });
 
     this.rebuildOrder();
+  }
+
+  /** Static rehydrate: attach to *existing* stores and root, no entity creation. */
+  static rehydrate(
+    world: World,
+    dataMeta: Readonly<{ name: string; fields: readonly any[] }> | null,
+    nodeMeta: Readonly<{ name: string; fields: readonly any[] }>
+  ): Tree {
+    const sNode = world.store(nodeMeta.name);
+    if (!isHierarchyStore(sNode as any)) {
+      throw new Error(`rehydrate: node meta '${nodeMeta.name}' does not satisfy hierarchy schema`);
+    }
+    if (sNode.size === 0) {
+      throw new Error("rehydrate: node store is empty; expected a root at row 0");
+    }
+    const root = sNode.denseToEntity[0]!;
+
+    let sData = sNode as any as DataStore;
+    if (dataMeta) {
+      sData = world.store(dataMeta.name) as any as DataStore;
+      if (sData.size === 0 || sData.denseIndexOf(root) < 0) {
+        sData = world.store(nodeMeta.name) as any as DataStore;
+      }
+    }
+
+    const tree = Object.create(Tree.prototype) as Tree;
+    (tree as any).world = world;
+    (tree as any).nodeStore = sNode;
+    (tree as any).dataStore = sData;
+    (tree as any).rootEntity = root | 0;
+    (tree as any).componentName = nodeMeta.name;
+
+    world.registerHierarchy(nodeMeta.name, {
+      remove: (e: number) => tree.remove(e),
+      componentName: nodeMeta.name,
+    });
+
+    tree.rebuildOrder();
+    return tree;
   }
 
   get order(): Int32Array { return this._order; }
@@ -273,16 +290,11 @@ export class Tree {
     this._epoch++;
   }
 
-  /** Disallow creating node rows implicitly; the tree owns membership. */
   protected assertMember(entity: number) {
     if (!this.nodeStore.has(entity))
       throw new Error(`Entity ${entity} is not a member of ${this.componentName}`);
   }
 
-  /**
-   * Set parent; -1 coerces to root. Root cannot be reparented.
-   * For base tree this is structural only (no transform math).
-   */
   setParent(entity: number, parent: number) {
     const e = entity | 0;
     const p = parent === NONE ? this.rootEntity : (parent | 0);
@@ -290,7 +302,6 @@ export class Tree {
     if (e === this.rootEntity) throw new Error("Cannot reparent the root");
     this.assertMember(e);
 
-    // Parent must be root or a member node.
     if (p !== this.rootEntity && !this.nodeStore.has(p))
       throw new Error(`Parent ${p} is not a member of ${this.componentName}`);
 
@@ -298,13 +309,11 @@ export class Tree {
       throw new Error("Cannot set parent: target parent is a descendant of the entity");
     }
 
-    // No-op if already the same parent.
     const cols = nodeColumns(this.nodeStore);
     const eRow = this.nodeStore.denseIndexOf(e);
     const curParent = cols.parent[eRow]! | 0;
     if (curParent === p) return;
 
-    // O(1) detach + append.
     detachFromParent(this.nodeStore, e);
     appendChildAtEnd(this.nodeStore, p, e);
 
@@ -312,13 +321,6 @@ export class Tree {
     this.rebuildOrder();
   }
 
-  /**
-   * Remove an entity from the tree:
-   * - Root: throws.
-   * - All children of the removed entity become children of the root,
-   *   preserving their original sibling order (O(k) bulk relink).
-   * - The entity is then deleted from the world (tears down all components).
-   */
   remove(entity: number) {
     const e = entity | 0;
     if (e === this.rootEntity) throw new Error("Cannot remove the root");
@@ -327,14 +329,11 @@ export class Tree {
     const cols = nodeColumns(this.nodeStore);
     const eRow = this.nodeStore.denseIndexOf(e)!;
 
-    // 1) Capture the child chain of e.
     const fc = cols.firstChild[eRow]! | 0;
     const lc = cols.lastChild[eRow]! | 0;
 
-    // 2) Detach 'e' from its current parent.
     detachFromParent(this.nodeStore, e);
 
-    // 3) Splice child list under root (preserve order), updating parent pointers.
     if (fc !== NONE) {
       const root = this.rootEntity;
       const rRow = this.nodeStore.denseIndexOf(root)!;
@@ -353,8 +352,6 @@ export class Tree {
         cols.lastChild[rRow] = lc;
       }
 
-      // Update parent for all nodes in the moved chain.
-      // Walk the sibling list from fc to lc.
       let cur = fc;
       for (let guard = 0; guard < this.nodeStore.size && cur !== NONE; guard++) {
         const cRow = this.nodeStore.denseIndexOf(cur);
@@ -365,11 +362,9 @@ export class Tree {
       }
     }
 
-    // 4) Clear e's child pointers (not strictly necessary before deletion).
     cols.firstChild[eRow] = NONE;
     cols.lastChild[eRow] = NONE;
 
-    // 5) Delete the entity from the world (will remove node/data stores too).
     this.world.destroyEntitySafe(e, /*removeFromTrees*/ false);
 
     this.bump();
@@ -377,8 +372,12 @@ export class Tree {
   }
 
   dispose() {
-    // Unprotect root (optional; kept to allow world teardown).
     this.world.unprotectEntity(this.rootEntity);
     this.world.unregisterHierarchy(this.componentName);
   }
 }
+
+/** Register base Tree as the default rehydrater. */
+setDefaultHierarchyRehydrater((world, dataMeta, nodeMeta) => {
+  Tree.rehydrate(world, dataMeta, nodeMeta);
+});

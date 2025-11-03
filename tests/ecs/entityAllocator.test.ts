@@ -1,3 +1,4 @@
+// tests/ecs/entityAllocator.test.ts
 import { EntityAllocator } from "../../src/ecs/core/entityAllocator.js";
 
 describe("EntityAllocator", () => {
@@ -73,5 +74,62 @@ describe("EntityAllocator", () => {
     expect(alloc.isAlive(42)).toBe(false);
     expect(alloc.denseIndexOf(-1)).toBe(-1);
     expect(alloc.denseIndexOf(42)).toBe(-1);
+  });
+
+  it("computes a valid dense remap and applies it", () => {
+    const alloc = new EntityAllocator(1);
+    // Make a sparse shape: [0,1,2,3,4], then remove 1 and 3
+    const ids = [alloc.create(), alloc.create(), alloc.create(), alloc.create(), alloc.create()];
+    expect(ids).toEqual([0, 1, 2, 3, 4]);
+    alloc.destroy(1);
+    alloc.destroy(3);
+
+    // Live set is whatever dense order currently holds (swap-removal may reorder).
+    const { remap, inverse } = alloc.computeDenseRemap();
+
+    // Verify bijection: remap[inverse[i]] === i
+    expect(inverse.length).toBe(3);
+    for (let i = 0; i < inverse.length; i++) {
+      const oldId = inverse[i]!;
+      expect(alloc.isAlive(oldId)).toBe(true);
+      expect(remap[oldId]).toBe(i);
+    }
+    // Dead ids map to < 0
+    expect(remap[1]).toBeLessThan(0);
+    expect(remap[3]).toBeLessThan(0);
+
+    const prevEpochs = Array.from(alloc.entityEpoch);
+
+    alloc.applyRemap(remap);
+
+    // After applyRemap, live ids are 0..size-1, free list cleared
+    expect(Array.from(alloc.dense)).toEqual([0, 1, 2]);
+    expect(alloc.size).toBe(3);
+    expect(alloc.isAlive(0)).toBe(true);
+    expect(alloc.isAlive(1)).toBe(true);
+    expect(alloc.isAlive(2)).toBe(true);
+
+    // Epochs for (new) live ids bumped by 1 relative to their source ids
+    for (let newId = 0; newId < 3; newId++) {
+      const oldId = inverse[newId]!;
+      expect(alloc.entityEpoch[newId]).toBe((prevEpochs[oldId] ?? 0) + 1);
+    }
+  });
+
+  it("export/import round-trip preserves allocator state", () => {
+    const alloc = new EntityAllocator(2);
+    for (let i = 0; i < 5; i++) alloc.create();
+    alloc.destroy(1);
+    alloc.destroy(3);
+    const snap = alloc.export();
+
+    const clone = new EntityAllocator(1);
+    clone.import(snap);
+
+    expect(clone.capacity).toBe(alloc.capacity);
+    expect(clone.size).toBe(alloc.size);
+    expect(Array.from(clone.dense)).toEqual(Array.from(alloc.dense));
+    expect(Array.from(clone["entityEpoch"])).toEqual(Array.from(alloc["entityEpoch"]));
+    expect(clone.isAlive(3)).toBe(false);
   });
 });

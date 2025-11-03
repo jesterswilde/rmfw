@@ -1,3 +1,4 @@
+// tests/ecs/componentStore.test.ts
 import { ComponentStore } from "../../src/ecs/core/componentStore.js";
 import type { ComponentMeta } from "../../src/ecs/interfaces.js";
 
@@ -158,6 +159,72 @@ describe("ComponentStore", () => {
       expect(fields.x[dense]).toBeCloseTo(expectedX);
       expect(fields.y[dense]).toBe(expectedY);
       expect(fields.z[dense]).toBe(expectedZ);
+    }
+  });
+
+  it("remaps entity ids and link fields", () => {
+    const linkMeta: ComponentMeta<"Links", "a" | "b" | "scalar"> = {
+      name: "Links",
+      fields: [
+        { key: "a", ctor: Int32Array, default: -1, link: true },
+        { key: "b", ctor: Int32Array, default: -1, link: true },
+        { key: "scalar", ctor: Float32Array, default: 0 },
+      ],
+    };
+    const store = new ComponentStore(linkMeta, 4);
+    // Live entities: 0,1,2. Set up links using raw entity ids.
+    store.add(0, { a: -1, b: 2, scalar: 1 });
+    store.add(1, { a: 0, b: -1, scalar: 2 });
+    store.add(2, { a: 1, b: -1, scalar: 3 });
+
+    // Remap: 0->10, 1->11, 2->12
+    const remap = new Int32Array(13).fill(-1);
+    remap[0] = 10; remap[1] = 11; remap[2] = 12;
+
+    store.remapEntitiesAndLinks(remap);
+    const f = store.fields() as any;
+
+    // denseToEntity updated
+    expect(Array.from(store.denseToEntity.slice(0, store.size))).toEqual([10, 11, 12]);
+    // entityToDense updated (new ids point to original rows 0..2)
+    expect(store.entityToDense[10]).toBe(0);
+    expect(store.entityToDense[11]).toBe(1);
+    expect(store.entityToDense[12]).toBe(2);
+
+    // Link fields remapped
+    expect(f.a[0]).toBe(-1);      // NONE preserved
+    expect(f.b[0]).toBe(12);      // old 2 -> 12
+    expect(f.a[1]).toBe(10);      // old 0 -> 10
+    expect(f.a[2]).toBe(11);      // old 1 -> 11
+
+    // Scalar untouched
+    expect(f.scalar[0]).toBeCloseTo(1);
+    expect(f.scalar[1]).toBeCloseTo(2);
+    expect(f.scalar[2]).toBeCloseTo(3);
+  });
+
+  it("export/import round-trip preserves the store", () => {
+    const store = new ComponentStore(meta, 2);
+    store.add(5, { x: 9, y: -3, z: 2 });
+    store.add(7, { x: 4, y: 0, z: 1 });
+    store.remove(5);
+    const snapshot = store.export();
+
+    const restored = new ComponentStore(meta, 1);
+    restored.import(snapshot);
+
+    expect(restored.name).toBe(store.name);
+    expect(restored.size).toBe(store.size);
+    expect(restored.capacity).toBe(store.capacity);
+    expect(Array.from(restored.denseToEntity.slice(0, restored.size)))
+      .toEqual(Array.from(store.denseToEntity.slice(0, store.size)));
+    expect(Array.from(restored.entityToDense)).toEqual(Array.from(store.entityToDense));
+    expect(Array.from(restored.rowVersion)).toEqual(Array.from(store.rowVersion));
+
+    const fA = store.fields();
+    const fB = restored.fields();
+    for (const key of Object.keys(fA) as Array<keyof typeof fA>) {
+      expect(Array.from(fB[key] as any)).toEqual(Array.from(fA[key] as any));
     }
   });
 });

@@ -13,15 +13,17 @@ export class World {
   private _registry = new Map<string, Def<any>>();
   private _hierarchies = new Map<string, HierarchyLike>();
 
-  readonly entityEpoch: Uint32Array;
-
   /** Entities that cannot be destroyed (e.g. tree roots). */
   private readonly protectedEntities = new Set<number>();
+
+  // Always return the allocator's CURRENT epoch buffer (never a stale reference).
+  get entityEpoch(): Uint32Array {
+    return this.entities.entityEpoch;
+  }
 
   constructor(cfg: WorldConfig = {}) {
     const cap = cfg.initialCapacity ?? 1024;
     this.entities = new EntityAllocator(cap);
-    this.entityEpoch = this.entities.entityEpoch;
   }
 
   /** Mark an entity as protected from deletion. */
@@ -118,7 +120,7 @@ export class World {
   unregisterHierarchy(name: string) {
     this._hierarchies.delete(name);
   }
-  /** Iterate registered hierarchies (internal/testing). */
+  /** Iterate registered hierarchies (internal/testing) SLOW. */
   forEachHierarchy(cb: (name: string, h: HierarchyLike) => void) {
     for (const [n, h] of this._hierarchies) cb(n, h);
   }
@@ -126,10 +128,6 @@ export class World {
   /** @internal */
   __listStoreNames?(): string[] {
     return Array.from(this._stores.keys());
-  }
-  /** @internal */
-  __forEachStore?(cb: (name: string, store: ComponentStore<any>) => void) {
-    for (const [name, store] of this._stores) cb(name, store);
   }
 
   // -----------------------------
@@ -191,5 +189,76 @@ export class World {
     for (const name of requiredComponents) rowsView[name] = rows[name]!.subarray(0, out);
 
     return { driver: driverName, count: out, entities: entitiesView, rows: rowsView };
+  }
+
+  /**
+   * Densify entity ids across the entire world:
+   * - Compute remap from current dense order (old -> new).
+   * - Remap all component stores (mappings + link fields).
+   * - Remap the protected set (mutate in place).
+   * - Finally apply the remap to the allocator (ids become 0..N-1).
+   * Returns the remap used (old -> new).
+   */
+  densifyEntities(): Int32Array {
+    const { remap } = this.entities.computeDenseRemap();
+
+    // Remap all stores first (while ids still refer to "old")
+    for (const store of this._stores.values()) {
+      store.remapEntitiesAndLinks(remap);
+    }
+
+    // Remap protected set in place
+    const keep: number[] = [];
+    for (const id of this.protectedEntities) {
+      const m = id < remap.length ? remap[id]! : -1;
+      if (m >= 0) keep.push(m);
+    }
+    this.protectedEntities.clear();
+    for (const nid of keep) this.protectedEntities.add(nid);
+
+    // Apply to allocator last
+    this.entities.applyRemap(remap);
+
+    return remap;
+  }
+
+  export(opts: { densify?: boolean } = {}): any {
+    const densify = opts.densify ?? true;
+    if (densify) this.densifyEntities();
+
+    // snapshot allocator
+    const allocator = this.entities.export();
+
+    // snapshot stores
+    const components: Record<string, any> = Object.create(null);
+    for (const [name, store] of this._stores) {
+      components[name] = store.export();
+    }
+
+    // protected ids
+    const protectedIds = Array.from(this.protectedEntities);
+
+    return {
+      allocator,
+      components,
+      protectedIds,
+    };
+  }
+
+  import(payload: { allocator: any; components: Record<string, any>; protectedIds: number[] }): void {
+    // allocator first (this will swap internal epoch buffer)
+    this.entities.import(payload.allocator);
+
+    // stores must already be registered with matching metas
+    for (const [name, snap] of Object.entries(payload.components)) {
+      const store = this._stores.get(name);
+      if (!store) throw new Error(`Import failed: store '${name}' is not registered`);
+      store.import(snap);
+    }
+
+    // protected ids
+    this.protectedEntities.clear();
+    for (const id of payload.protectedIds)
+      this.protectedEntities.add(id | 0);
   }
 }
