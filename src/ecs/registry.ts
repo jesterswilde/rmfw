@@ -1,10 +1,10 @@
 // src/ecs/registry.ts
-import { ShapeType } from "../entityDef.js";
 import { Op } from "../interfaces.js";
 import { NONE, World } from "./core/index.js";
 import type { FieldMeta, Def, InitFromMeta } from "./interfaces.js";
 import { TransformTree } from "./tree/transformTree.js";
-import { registerHierarchyRehydrater } from "./tree/rehydraters.js";
+import { registerTreeRehydrater } from "./tree/rehydraters.js";
+import { Tree } from "./tree/tree.js";
 
 /** Factory to preserve literal name & field keys. */
 export function defineMeta<
@@ -107,7 +107,7 @@ export const RenderNodeMeta = defineMeta({
 });
 
 export const ShapeMeta = defineMeta({
-  name: "ShapeLeaf",
+  name: "Shape",
   fields: [
     { key: "shapeType", ctor: Int32Array,   default: 0 },
     { key: "p0",        ctor: Float32Array, default: 0 },
@@ -135,7 +135,7 @@ export const ShapeLeaf:     Def<typeof ShapeMeta>         = { meta: ShapeMeta };
 export const Operation:     Def<typeof OperationMeta>     = { meta: OperationMeta };
 
 // Register a TransformTree-specific rehydrater for TransformNode.
-registerHierarchyRehydrater(TransformNodeMeta.name, (world) => {
+registerTreeRehydrater(TransformNodeMeta.name, (world) => {
   // Use the transform-aware rehydrate path via the class’ inherited static method.
   (TransformTree as any).rehydrate(world, TransformMeta, TransformNodeMeta);
 });
@@ -145,9 +145,9 @@ export function initWorld(cfg?: { initialCapacity?: number }) {
   const world = new World({ initialCapacity: cfg?.initialCapacity ?? 1024 });
 
   new TransformTree(world, TransformNodeMeta, TransfromRoot);
-  world.register(RenderNode,    256);
+  new Tree(world, OperationMeta, RenderNodeMeta, OpRoot);
   world.register(ShapeLeaf,     256);
-  world.register(Operation,     256);
+  //world.register(Operation,     256);  //This is how you resgister a component that is not part of a tree
 
   return world;
 }

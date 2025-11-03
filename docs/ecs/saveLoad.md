@@ -138,7 +138,7 @@ static rehydrate(world: World, nodeMeta: Meta, rootEntityId: number): TransformT
 Steps:
 1. World.import(snapshot)
 2. Call Tree.rehydrate(...) for each tree type present
-3. Inside rehydrate, rebuild traversal order & re-register hierarchy hook.
+3. Inside rehydrate, rebuild traversal order & re-register tree hook.
 
 ---
 
@@ -177,14 +177,14 @@ TransformTree.rehydrate(world, TransformNodeMeta, world.store("TransformNode").d
    - Multiple components, differing capacities.
 
 4. Tree Rehydrate
-   - Validate re-registration of hierarchies after import.
+   - Validate re-registration of trees after import.
 
 5. Compatibility Checks
    - Missing metas throw.
    - Extra fields ignored (no schema drift support).
 
 6. Tree Enumeration
-   - Snapshot 'trees' array lists each registered hierarchy once (prefers componentName overrides).
+   - Snapshot 'trees' array lists each registered trees once (prefers componentName overrides).
 
 ---
 

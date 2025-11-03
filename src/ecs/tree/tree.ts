@@ -1,8 +1,8 @@
 // src/ecs/tree/tree.ts
 import { NONE, type StoreOf, type World } from "../core/index.js";
-import { registerHierarchyRehydrater, setDefaultHierarchyRehydrater } from "./rehydraters.js";
+import { registerTreeRehydrater, setDefaultTreeRehydrater } from "./rehydraters.js";
 
-/** Explicit shape of the hierarchical node columns in a SoA store. */
+/** Explicit shape of the tree node columns in a SoA store. */
 interface NodeColumns {
   parent: Int32Array;      // -1 if root
   firstChild: Int32Array;  // head of singly-linked child list
@@ -14,7 +14,7 @@ interface NodeColumns {
 type NodeStore = StoreOf<any>;
 type DataStore = StoreOf<any>;
 
-export function isHierarchyStore(store: NodeStore): boolean {
+export function isTreeStore(store: NodeStore): boolean {
   const m = (store as any).meta as
     | { fields: { key: string; ctor: any; link?: boolean }[] }
     | undefined;
@@ -199,8 +199,8 @@ export class Tree {
     const dataStore = world.register(dataDef);
     const nodeStore = world.register(nodeDef);
 
-    if (!isHierarchyStore(nodeStore as any)) {
-      throw new Error(`Node meta '${nodeMeta.name}' does not satisfy hierarchy schema`);
+    if (!isTreeStore(nodeStore as any)) {
+      throw new Error(`Node meta '${nodeMeta.name}' does not satisfy tree schema`);
     }
     if (dataStore.size !== 0 || nodeStore.size !== 0) {
       throw new Error("Tree creation requires empty stores (row 0 reserved for root)");
@@ -225,7 +225,7 @@ export class Tree {
     this.rootEntity = root;
     this.componentName = (nodeStore as any).name as string;
 
-    this.world.registerHierarchy(this.componentName, {
+    this.world.registerTree(this.componentName, {
       remove: (e: number) => this.remove(e),
       componentName: this.componentName,
     });
@@ -240,7 +240,7 @@ export class Tree {
     nodeMeta: Readonly<{ name: string; fields: readonly any[] }>
   ): Tree {
     const sNode = world.store(nodeMeta.name);
-    if (!isHierarchyStore(sNode as any)) {
+    if (!isTreeStore(sNode as any)) {
       throw new Error(`rehydrate: node meta '${nodeMeta.name}' does not satisfy hierarchy schema`);
     }
     if (sNode.size === 0) {
@@ -263,7 +263,7 @@ export class Tree {
     (tree as any).rootEntity = root | 0;
     (tree as any).componentName = nodeMeta.name;
 
-    world.registerHierarchy(nodeMeta.name, {
+    world.registerTree(nodeMeta.name, {
       remove: (e: number) => tree.remove(e),
       componentName: nodeMeta.name,
     });
@@ -373,11 +373,11 @@ export class Tree {
 
   dispose() {
     this.world.unprotectEntity(this.rootEntity);
-    this.world.unregisterHierarchy(this.componentName);
+    this.world.unregisterTree(this.componentName);
   }
 }
 
 /** Register base Tree as the default rehydrater. */
-setDefaultHierarchyRehydrater((world, dataMeta, nodeMeta) => {
+setDefaultTreeRehydrater((world, dataMeta, nodeMeta) => {
   Tree.rehydrate(world, dataMeta, nodeMeta);
 });

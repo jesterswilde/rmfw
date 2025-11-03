@@ -11,7 +11,6 @@ import { moveCam, rotateCam } from "./camera.js";
   setupInputListeners();
 
   const scene = new Scene(gpuManager.device, "dist/wgsl/main.wgsl");
-  await scene.loadScene("assets/scene.json");
 
   const viewA = new CanvasView(scene, /*id*/ 1, 640, 360);
   document.body.appendChild(viewA.getElement());

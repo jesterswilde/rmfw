@@ -3,7 +3,7 @@ import { World, NONE } from "../../src/ecs/core/index.js";
 import type { ComponentMeta } from "../../src/ecs/interfaces.js";
 import {
   Tree,
-  isHierarchyStore,
+  isTreeStore,
   nodeColumns,
   isAncestor,
   detachFromParent,
@@ -53,10 +53,10 @@ const emptyLinks = () => ({
 describe("Tree helpers", () => {
   it("validates hierarchy stores", () => {
     const goodStore = new ComponentStore(hierarchyMeta, 2);
-    expect(isHierarchyStore(goodStore as any)).toBe(true);
+    expect(isTreeStore(goodStore as any)).toBe(true);
 
     const badStore = new ComponentStore(badMeta, 2);
-    expect(isHierarchyStore(badStore as any)).toBe(false);
+    expect(isTreeStore(badStore as any)).toBe(false);
   });
 
   it("narrows node columns and writes through", () => {
@@ -136,7 +136,7 @@ describe("Tree", () => {
     expect(Array.from(tree.order)).toEqual([tree.root]);
 
     const names: string[] = [];
-    world.forEachHierarchy((name) => names.push(name));
+    world.forEachTree((name) => names.push(name));
     expect(names).toContain("HierarchyNode");
   });
 
@@ -251,7 +251,7 @@ describe("Tree", () => {
     tree.dispose();
     expect(world.isEntityProtected(tree.root)).toBe(false);
     const names: string[] = [];
-    world.forEachHierarchy((name) => names.push(name));
+    world.forEachTree((name) => names.push(name));
     expect(names).not.toContain("HierarchyNode");
   });
 });

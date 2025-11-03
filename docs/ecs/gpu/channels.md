@@ -14,7 +14,7 @@ This document explains the **ECS → GPU channel layer**, which prepares compact
 |--------|-------------|
 | **BaseChannel** | Common CPU/GPU buffer management, dirty tracking, and upload logic. |
 | **TransformsChannel** | Streams inverse-world transforms in `TransformTree` DFS order. |
-| **RenderChannel** | Streams render nodes (ops/shapes) in `RenderTree` DFS order, wiring hierarchy links and transform references. |
+| **RenderChannel** | Streams render nodes (ops/shapes) in `RenderTree` DFS order, wiring tree links and transform references. |
 
 All channels are **deterministic** — given identical ECS and tree inputs, they produce byte-identical outputs.
 
@@ -231,7 +231,7 @@ sync(world, {
     
     - Add/remove `Shape` or `Operation` component; correct kind & zeroing.
         
-6. **Hierarchy link changes**
+6. **Tree link changes**
     
     - Reparent; updates `firstChild` / `nextSibling`.
         

@@ -50,9 +50,9 @@ export type TreeRehydrators = Readonly<Record<string, TreeRehydrator>>;
 export function saveWorld(world: World, opts: SaveOptions = {}): WorldSnapshot {
   const densify = opts.densify ?? true;
 
-  // 1) Collect tree component names from registered hierarchies
+  // 1) Collect tree component names from registered trees
   const treeNames: string[] = [];
-  world.forEachHierarchy((name, h) => {
+  world.forEachTree((name, h) => {
     // Prefer explicit componentName if provided by the tree, else registry key
     const compName = h.componentName || name;
     if (!treeNames.includes(compName)) treeNames.push(compName);

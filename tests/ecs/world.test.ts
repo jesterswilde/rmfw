@@ -127,9 +127,9 @@ describe("World", () => {
     const keep = { remove: jest.fn() };
     const drop = { remove: jest.fn() };
 
-    world.registerHierarchy("keep", keep);
-    world.registerHierarchy("drop", drop);
-    world.unregisterHierarchy("drop");
+    world.registerTree("keep", keep);
+    world.registerTree("drop", drop);
+    world.unregisterTree("drop");
 
     world.destroyEntitySafe(entity);
 
@@ -144,7 +144,7 @@ describe("World", () => {
     posStore.add(entity, { x: 0, y: 0 });
 
     const h = { remove: jest.fn() };
-    world.registerHierarchy("tree", h);
+    world.registerTree("tree", h);
 
     world.destroyEntitySafe(entity, false);
 

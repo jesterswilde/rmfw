@@ -1,168 +1,193 @@
-import { ShapePool } from '../pools/entity.js';
-import { Mat34Pool } from '../pools/matrix.js';
-import { NodeTree } from '../pools/nodeTree.js';
-import { parseScene } from '../systems/loadScene.js';
-import { repack } from '../systems/repack.js';
-import { load } from '../utils/util.js';
-import { ComputeRenderer } from './computeRenderer.js';
-import { QuadBlitPass } from './quadBlit.js';
-import { propagateTransforms } from '../systems/propegatTransforms.js';
-import type { IView, SceneViews, ViewGPU } from './interface.js';
+// src/gpu/scene.ts
+import type { World } from "../ecs/core/index.js";
+import type { IView, SceneViews, ViewGPU } from "./interface.js";
 
+import { ComputeRenderer } from "./computeRenderer.js";
+import { QuadBlitPass } from "./quadBlit.js";
+
+import { GpuBridge } from "../ecs/gpu/bridge.js";
+import { RenderChannel } from "../ecs/gpu/renderChannel.js";
+import { TransformsChannel } from "../ecs/gpu/transformsChannel.js";
+import type { DfsOrder } from "../ecs/gpu/baseChannel.js";
+
+import {
+  ShapeMeta,
+  OperationMeta,
+  RenderNodeMeta,
+  TransformMeta,
+} from "../ecs/registry.js";
+
+type TreeRef = { order: DfsOrder; epoch: number };
 
 export class Scene {
   private _device: GPUDevice;
 
-  private _bindGroupLayout: GPUBindGroupLayout; // scene @group(2)
+  // Scene bind-group (group=2) now comes from the ECS bridge
+  private _sceneBGL!: GPUBindGroupLayout; // @group(2)
   private _sceneBG!: GPUBindGroup;
-
-  private _nodes: NodeTree;
-  private _entities: ShapePool;
-  private _matrices: Mat34Pool;
-
-  private _nodesVersion = -1;
-  private _entitiesVersion = -1;
-  private _matricesVersion = -1;
 
   private _compute: ComputeRenderer;
 
   private _time = 0;
-  private _numObjs = 0; // will be set from _entities.size after load
+  private _numNodes = 0;
 
-  private _views: SceneViews = new Map<number, { view: IView, gpu: ViewGPU }>();
+  private _views: SceneViews = new Map<number, { view: IView; gpu: ViewGPU }>();
 
-  // Frame UBO (dynamic)
+  // Frame UBO (dynamic) — @group(1)
   private _frameUBO!: GPUBuffer;
-  private _frameBG!: GPUBindGroup; // @group(1)
-  private _uboStride = 256; // computed from device limits in ctor
+  private _frameBG!: GPUBindGroup;
+  private _uboStride = 256; // aligned to device.limits.minUniformBufferOffsetAlignment
   private _maxViews = 8;
 
   private _blit!: QuadBlitPass;
   private _blitReady = false;
-  private _canvasFormat: GPUTextureFormat = 'rgba8unorm';
+  private _canvasFormat: GPUTextureFormat = "rgba8unorm";
+
+  // ECS bridge + world + trees
+  private _bridge: GpuBridge | null = null;
+  private _world: World | null = null;
+  private _renderTree: TreeRef | null = null;
+  private _xformTree: TreeRef | null = null;
+
+  // shader setup
+  private _wgslPath: string;
+  private _entryPoint: string;
 
   // debug
   private readonly DEBUG_CLEAR_MAGENTA = false;
 
-  constructor(device: GPUDevice, wgslPath: string, entryPoint = 'render') {
+  constructor(device: GPUDevice, wgslPath: string, entryPoint = "render") {
     this._device = device;
+    this._wgslPath = wgslPath;
+    this._entryPoint = entryPoint;
+    // Compute: out(0) + frame(1) are static; scene(2) provided after attachWorld()
+    this._compute = new ComputeRenderer(this._wgslPath);
 
     // Respect adapter alignment (commonly 256)
-    const align = Math.max(256, device.limits.minUniformBufferOffsetAlignment || 256);
+    const align = Math.max(
+      256,
+      device.limits.minUniformBufferOffsetAlignment || 256
+    );
     this._uboStride = align;
 
-    // Pools
-    this._nodes = new NodeTree(256);
-    this._entities = new ShapePool(256);
-    this._matrices = new Mat34Pool(256);
-    this._nodes.createGPUBuffer(device);
-    this._entities.createGPUBuffer(device);
-    this._matrices.createGPUBuffer(device);
-    this._nodesVersion = this._nodes.version;
-    this._entitiesVersion = this._entities.version;
-    this._matricesVersion = this._matrices.version;
-
-    // Scene storage layout (@group(2))
-    this._bindGroupLayout = device.createBindGroupLayout({
-      entries: [
-        { binding: 0, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } }, // entities/shapes
-        { binding: 1, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } }, // nodes
-        { binding: 2, visibility: GPUShaderStage.COMPUTE, buffer: { type: 'read-only-storage' } }, // transforms
-      ],
-    });
-    this._sceneBG = this._device.createBindGroup({
-      layout: this._bindGroupLayout,
-      entries: [
-        { binding: 0, resource: { buffer: this._entities.getGPUBuffer()! } },
-        { binding: 1, resource: { buffer: this._nodes.getGPUBuffer()! } },
-        { binding: 2, resource: { buffer: this._matrices.getGPUBuffer()! } },
-      ],
-    });
-
-    // Frame UBO & BG (@group(1)) — allocate dynamic buffer with 256-byte slices
+    // Frame UBO & BG (@group(1)) — allocate dynamic buffer with stride slices
     this._frameUBO = device.createBuffer({
       size: this._maxViews * this._uboStride,
       usage: GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST,
     });
 
-    // Compute: include frame+scene layouts
-    this._compute = new ComputeRenderer(wgslPath);
-    this._compute.init().then(() => {
-      this._compute.buildWithScene(this._bindGroupLayout, entryPoint);
+    // We can init immediately; building with scene layout waits for attachWorld()
+    void this._compute.init().then(() => {
+      // frame layout is ready after init()
       this._frameBG = device.createBindGroup({
         layout: this._compute.getLayouts().frame,
         entries: [{ binding: 0, resource: { buffer: this._frameUBO } }],
       });
-      this.rebuildPerViewOutBG(); // create per-view group(0)
+      // per-view out BGs will be created lazily per view once pipeline exists
+      this.rebuildPerViewOutBG(); // no-op until pipeline exists
     });
 
-    // Blit is created on first registerView (needs canvas format)
+    // Blit pass is created on first registerView (needs canvas format)
   }
 
-  async loadScene(sceneLocation: string) {
-    const sceneObj = await load(sceneLocation, 'json');
+  /**
+   * Attach an ECS world and register GPU channels for scene data.
+   * Call this once the world has its stores and trees available.
+   */
+  attachWorld(world: World, trees: { trenderTree: TreeRef; transformHierarchy: TreeRef }) {
+    this._world = world;
+    this._renderTree = trees.trenderTree;
+    this._xformTree = trees.transformHierarchy;
 
-    parseScene(sceneObj, this._nodes, this._entities, this._matrices);
-    propagateTransforms(this._nodes, this._matrices);
-    //Repack doesn't carry over dirty flags so it's important that propegation happens first
-    repack(this._nodes, this._entities, this._matrices);
+    // Create & register channels
+    const bridge = new GpuBridge();
+    this._bridge = bridge;
 
-    this._nodesVersion = this._nodes.version;
-    this._entitiesVersion = this._entities.version;
-    this._matricesVersion = this._matrices.version;
+    // Binding 1: transforms (inverse, DFS order of Transform tree)
+    bridge.register({
+      group: 2,
+      binding: 1,
+      channel: new TransformsChannel(),
+      argsProvider: (w: World) => ({
+        order: this._xformTree!.order,
+        orderEpoch: this._xformTree!.epoch,
+        store: w.storeOf(TransformMeta),
+      }),
+    });
 
-    this._numObjs = this._entities.size;
+    // Binding 0: render nodes (needs render DFS, transform DFS, and stores)
+    bridge.register({
+      group: 2,
+      binding: 0,
+      channel: new RenderChannel(),
+      argsProvider: (w: World) => ({
+        order: this._renderTree!.order,
+        orderEpoch: this._renderTree!.epoch,
+        shapeStore: w.storeOf(ShapeMeta),
+        opStore: w.storeOf(OperationMeta),
+        renderStore: w.storeOf(RenderNodeMeta),
+        transformStore: w.storeOf(TransformMeta),
+        transformOrder: this._xformTree!.order,
+        transformOrderEpoch: this._xformTree!.epoch,
+      }),
+    });
 
-    this._sceneBG = this._device.createBindGroup({
-      layout: this._bindGroupLayout,
-      entries: [
-        { binding: 0, resource: { buffer: this._entities.getGPUBuffer()! } },
-        { binding: 1, resource: { buffer: this._nodes.getGPUBuffer()! } },
-        { binding: 2, resource: { buffer: this._matrices.getGPUBuffer()! } },
-      ],
+
+    // Build scene group layout from bridge and compile pipeline with it
+    this._sceneBGL = this._device.createBindGroupLayout({
+      entries: bridge.layoutEntriesFor(2),
+    });
+
+    // If compute was initialized, build the pipeline with the scene layout.
+    // We may call this multiple times safely; ComputeRenderer will create the pipeline once per scene layout.
+    void this._compute.buildWithScene(this._sceneBGL, this._entryPoint).then(() => {
+      // After pipeline exists, rebuild any per-view out bind groups
+      this.rebuildPerViewOutBG();
+      // Create initial scene bind group
+      this._sceneBG = this._device.createBindGroup({
+        layout: this._sceneBGL,
+        entries: bridge.bindGroupEntriesFor(2),
+      });
     });
   }
 
+  /**
+   * Advance time, sync ECS→GPU via bridge, and refresh scene bind group.
+   * Safe to call each frame; requires world to be attached.
+   */
   update(dt: number) {
     this._time += dt;
+    if (!this._bridge || !this._world)
+      return;
+    this._bridge.syncAll(this._world, this._device, this._device.queue);
 
-    const changed =
-      this._nodes.version !== this._nodesVersion ||
-      this._entities.version !== this._entitiesVersion ||
-      this._matrices.version !== this._matricesVersion;
+    // Recreate scene bind group (simple + safe)
+    this._sceneBG = this._device.createBindGroup({
+      layout: this._sceneBGL,
+      entries: this._bridge.bindGroupEntriesFor(2),
+    });
 
-    if (changed) {
-      this._sceneBG = this._device.createBindGroup({
-        layout: this._bindGroupLayout,
-        entries: [
-          { binding: 0, resource: { buffer: this._entities.getGPUBuffer()! } },
-          { binding: 1, resource: { buffer: this._nodes.getGPUBuffer()! } },
-          { binding: 2, resource: { buffer: this._matrices.getGPUBuffer()! } },
-        ],
-      });
-      this._nodesVersion = this._nodes.version;
-      this._entitiesVersion = this._entities.version;
-      this._matricesVersion = this._matrices.version;
-
-      this._numObjs = this._entities.size;
-    }
-
-    propagateTransforms(this._nodes, this._matrices)
+    // Node count for frame UBO (render DFS length)
+    this._numNodes = this._renderTree ? this._renderTree.order.length : 0;
   }
 
   registerView(view: IView) {
     const canvas = view.getElement();
-    const ctx = canvas.getContext('webgpu')!;
+    const ctx = canvas.getContext("webgpu")!;
 
     // DPR-aware backing size
     const { width, height } = view.getSize();
     const dpr = Math.max(1, window.devicePixelRatio || 1);
-    canvas.width  = Math.max(1, Math.floor(width  * dpr));
+    canvas.width = Math.max(1, Math.floor(width * dpr));
     canvas.height = Math.max(1, Math.floor(height * dpr));
 
     // Canvas format
     this._canvasFormat = navigator.gpu.getPreferredCanvasFormat();
-    ctx.configure({ device: this._device, format: this._canvasFormat, alphaMode: 'premultiplied' });
+    ctx.configure({
+      device: this._device,
+      format: this._canvasFormat,
+      alphaMode: "premultiplied",
+    });
 
     // Blit
     if (!this._blitReady) {
@@ -175,11 +200,11 @@ export class Scene {
     gpu.context = ctx;
 
     // assign 256-aligned dynamic slice
-    gpu.uboOffset = (this._views.size) * this._uboStride;
+    gpu.uboOffset = this._views.size * this._uboStride;
 
     this._views.set(view.id, { view, gpu });
 
-    // If compute ready, build outBG now
+    // If compute pipeline ready, build outBG now
     if (this._compute.pipelineHandle && !gpu.outBG) {
       gpu.outBG = this._device.createBindGroup({
         layout: this._compute.getLayouts().out,
@@ -203,7 +228,7 @@ export class Scene {
     const { width, height } = view.getSize();
     const canvas = view.getElement();
     const dpr = Math.max(1, window.devicePixelRatio || 1);
-    canvas.width  = Math.max(1, Math.floor(width  * dpr));
+    canvas.width = Math.max(1, Math.floor(width * dpr));
     canvas.height = Math.max(1, Math.floor(height * dpr));
 
     const { gpu } = entry;
@@ -224,26 +249,27 @@ export class Scene {
   }
 
   render(workgroupSize = 8) {
-    if (!this._compute.pipelineHandle) 
-      return;
+    if (!this._compute.pipelineHandle || !this._sceneBG) return;
 
     const enc = this._device.createCommandEncoder();
 
     if (this.DEBUG_CLEAR_MAGENTA) {
       for (const { gpu } of this._views.values()) {
         const rp = enc.beginRenderPass({
-          colorAttachments: [{
-            view: gpu.outView,
-            loadOp: 'clear',
-            clearValue: { r: 1, g: 0, b: 1, a: 1 },
-            storeOp: 'store',
-          }]
+          colorAttachments: [
+            {
+              view: gpu.outView,
+              loadOp: "clear",
+              clearValue: { r: 1, g: 0, b: 1, a: 1 },
+              storeOp: "store",
+            },
+          ],
         });
         rp.end();
       }
     }
 
-    // 2) Compute (bind 0=out, 1=frame, 2=scene)
+    // Compute pass per view
     {
       const pass = enc.beginComputePass();
       pass.setPipeline(this._compute.pipelineHandle);
@@ -257,17 +283,23 @@ export class Scene {
         }
         if (!gpu.outBG) continue;
 
-        // ---- Build and upload per-view Frame (128B) into 256B dynamic slice ----
-        this.writeFrameSlice(gpu.uboOffset, gpu.width, gpu.height, this._time, this._numObjs, view.getCamera());
+        // ---- Build and upload per-view Frame slice into 256B-aligned dynamic offset ----
+        this.writeFrameSlice(
+          gpu.uboOffset,
+          gpu.width,
+          gpu.height,
+          this._time,
+          this._numNodes,
+          view.getCamera()
+        );
 
-        // bind groups
+        // bind groups: 0=out, 1=frame (dynamic), 2=scene
         pass.setBindGroup(0, gpu.outBG);
-        // dynamic offset must be multiple of minUniformBufferOffsetAlignment (we enforce in ctor)
         pass.setBindGroup(1, this._frameBG, [gpu.uboOffset]);
         pass.setBindGroup(2, this._sceneBG);
 
-        // dispatch for full texture size
-        const wx = Math.ceil(gpu.width  / workgroupSize);
+        // dispatch to cover full texture size
+        const wx = Math.ceil(gpu.width / workgroupSize);
         const wy = Math.ceil(gpu.height / workgroupSize);
         pass.dispatchWorkgroups(wx, wy);
       }
@@ -275,7 +307,7 @@ export class Scene {
       pass.end();
     }
 
-    // 3) Blit to canvas
+    // Blit to canvas
     for (const { gpu } of this._views.values()) {
       this._blit.encode(enc, gpu.context, gpu.blitBG);
     }
@@ -284,53 +316,60 @@ export class Scene {
   }
 
   // ---- internals ------------------------------------------------------------
-  /** Pack FramePacked: 6 x vec4 = 96 bytes */
-private writeFrameSlice(
+
+  /**
+   * Pack FramePacked (6×vec4 = 96 bytes) and upload into the frame UBO slice.
+   * Layout matches WGSL:
+   *  - u0: vec4<u32> = [width, height, numNodes, flags]
+   *  - f0: vec4<f32> = [time, 0, 0, 0]
+   *  - c0..c3: camera columns (16 floats, column-major)
+   */
+  private writeFrameSlice(
     offset: number,
     width: number,
     height: number,
     time: number,
-    numShapes: number,
-    cameraCols16: Float32Array | number[], // 16 floats, column-major
+    numNodes: number,
+    cameraCols16: Float32Array | number[] // 16 floats, column-major
   ) {
-    const SIZE = 96; // 6 * 16B
-    const buf = new ArrayBuffer(SIZE);
+    // 6 vec4<f32> = 24 floats = 96 bytes
+    const FLOATS = 24;
+    const buf = new ArrayBuffer(FLOATS * 4);
     const u32 = new Uint32Array(buf);
     const f32 = new Float32Array(buf);
 
-    // u0 : vec4<u32> @ 0..15
-    u32[0] = width >>> 0;    // x = res.x
-    u32[1] = height >>> 0;   // y = res.y
-    u32[2] = numShapes >>> 0;// z = numShapes
-    u32[3] = 0;              // w = flags/unused
+    // u0 : vec4<u32> @ 0..3
+    u32[0] = width >>> 0;
+    u32[1] = height >>> 0;
+    u32[2] = numNodes >>> 0;
+    u32[3] = 0; // flags/unused
 
-    // f0 : vec4<f32> @ 16..31 (float index 4..7)
-    f32[4] = time;           // x = time
+    // f0 : vec4<f32> @ 4..7
+    f32[4] = time;
+    f32[5] = 0;
+    f32[6] = 0;
+    f32[7] = 0;
 
-    //// camera columns @ 32..95 (float index 8..23)
-    //const cam = Array.from(cameraCols16 as any).slice(0, 16); // guard length
-    //// c0
-    //new Float32Array(buf, 32, 4).set(cam.slice(0, 4));
-    //// c1
-    //new Float32Array(buf, 48, 4).set(cam.slice(4, 8));
-    //// c2
-    //new Float32Array(buf, 64, 4).set(cam.slice(8, 12));
-    //// c3
-    //new Float32Array(buf, 80, 4).set(cam.slice(12, 16));
+    // c0..c3 : vec4<f32> @ 8..23
+    const cam = cameraCols16 as ReadonlyArray<number>;
+    // ensure we have at least 16 numbers; extra are ignored
+    f32.set(cam.slice(0, 16), 8);
 
     this._device.queue.writeBuffer(this._frameUBO, offset, buf);
   }
 
-
   private createPerViewGPU(width: number, height: number): ViewGPU {
     const outTex = this._device.createTexture({
       size: { width, height },
-      format: 'rgba8unorm',
-      usage: GPUTextureUsage.RENDER_ATTACHMENT | GPUTextureUsage.TEXTURE_BINDING | GPUTextureUsage.STORAGE_BINDING,
+      format: "rgba8unorm",
+      usage:
+        GPUTextureUsage.RENDER_ATTACHMENT |
+        GPUTextureUsage.TEXTURE_BINDING |
+        GPUTextureUsage.STORAGE_BINDING,
     });
     const outView = outTex.createView();
 
-    if (!this._blitReady) throw new Error('Blit pass not initialized');
+    if (!this._blitReady) throw new Error("Blit pass not initialized");
     const blitBG = this._blit.createBindGroup(outView);
 
     let outBG: GPUBindGroup | null = null;
@@ -343,8 +382,12 @@ private writeFrameSlice(
 
     return {
       context: undefined as any,
-      outTex, outView, outBG, blitBG,
-      width, height,
+      outTex,
+      outView,
+      outBG,
+      blitBG,
+      width,
+      height,
       uboOffset: 0,
     };
   }

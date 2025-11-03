@@ -1,23 +1,23 @@
 // src/ecs/tree/rehydraters.ts
 import type { World } from "../core/world.js";
 
-/** Rehydrater signature: attach hierarchy to existing stores. */
-export type HierarchyRehydrater = (
+/** Rehydrater signature: attach tree to existing stores. */
+export type TreeRehydrater = (
   world: World,
   dataMeta: Readonly<{ name: string; fields: readonly any[] }> | null,
   nodeMeta: Readonly<{ name: string; fields: readonly any[] }>
 ) => void;
 
-const REGISTRY = new Map<string, HierarchyRehydrater>();
-let DEFAULT_REHYDRATER: HierarchyRehydrater | null = null;
+const REGISTRY = new Map<string, TreeRehydrater>();
+let DEFAULT_REHYDRATER: TreeRehydrater | null = null;
 
 /** Register a rehydrater for a specific node-component name. */
-export function registerHierarchyRehydrater(nodeComponentName: string, fn: HierarchyRehydrater): void {
+export function registerTreeRehydrater(nodeComponentName: string, fn: TreeRehydrater): void {
   REGISTRY.set(nodeComponentName, fn);
 }
 
 /** Set a default fallback rehydrater (used if no specific handler is registered). */
-export function setDefaultHierarchyRehydrater(fn: HierarchyRehydrater): void {
+export function setDefaultTreeRehydrater(fn: TreeRehydrater): void {
   DEFAULT_REHYDRATER = fn;
 }
 

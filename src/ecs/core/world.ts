@@ -1,5 +1,5 @@
 // src/ecs/core/world.ts
-import type { Def, HierarchyLike, MetaOf, ComponentMeta, FieldMeta, Entity } from "../interfaces";
+import type { Def, TreeLike, MetaOf, ComponentMeta, FieldMeta, Entity } from "../interfaces";
 import { ComponentStore, type StoreOf, type StoreView } from "./componentStore";
 import { EntityAllocator } from "./entityAllocator";
 
@@ -11,7 +11,7 @@ export class World {
   readonly entities: EntityAllocator;
   private _stores = new Map<string, ComponentStore<any>>();
   private _registry = new Map<string, Def<any>>();
-  private _hierarchies = new Map<string, HierarchyLike>();
+  private _trees = new Map<string, TreeLike>();
 
   /** Entities that cannot be destroyed (e.g. tree roots). */
   private readonly protectedEntities = new Set<number>();
@@ -95,7 +95,7 @@ export class World {
 
   /**
    * Safely destroy an entity:
-   * - If removeFromTrees is true (default): detach from all registered hierarchies first.
+   * - If removeFromTrees is true (default): detach from all registered trees first.
    * - Then remove from all component stores and free the entity id.
    * Throws if the entity is protected (e.g., a tree root).
    */
@@ -105,24 +105,24 @@ export class World {
       throw new Error(`Cannot destroy protected entity ${id}`);
     }
     if (removeFromTrees) {
-      for (const h of this._hierarchies.values()) {
+      for (const h of this._trees.values()) {
         try { h.remove(id); } catch { /* ignore */ }
       }
     }
     this.destroyEntity(id);
   }
 
-  /** Register a hierarchy view by component name (idempotent). */
-  registerHierarchy(name: string, h: HierarchyLike) {
-    this._hierarchies.set(name, h);
+  /** Register a tree view by component name (idempotent). */
+  registerTree(name: string, h: TreeLike) {
+    this._trees.set(name, h);
   }
-  /** Unregister a hierarchy view by component name (no-op if missing). */
-  unregisterHierarchy(name: string) {
-    this._hierarchies.delete(name);
+  /** Unregister a tree view by component name (no-op if missing). */
+  unregisterTree(name: string) {
+    this._trees.delete(name);
   }
-  /** Iterate registered hierarchies (internal/testing) SLOW. */
-  forEachHierarchy(cb: (name: string, h: HierarchyLike) => void) {
-    for (const [n, h] of this._hierarchies) cb(n, h);
+  /** Iterate registered trees (internal/testing) SLOW. */
+  forEachTree(cb: (name: string, h: TreeLike) => void) {
+    for (const [n, h] of this._trees) cb(n, h);
   }
 
   /** @internal */

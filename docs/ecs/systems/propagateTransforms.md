@@ -2,7 +2,7 @@
 
 # Propagate Transforms
 
-A frame-time system that updates each entity’s `Transform` from its parent’s world transform and the entity’s local transform, writing both the **world** (3×4) and **inverse world** (3×4) matrices. It traverses the `TransformNode` hierarchy deterministically, honors per-entity `dirty` flags to skip unnecessary work, and avoids per-frame allocations by reusing a `PropagateWorkspace`.
+A frame-time system that updates each entity’s `Transform` from its parent’s world transform and the entity’s local transform, writing both the **world** (3×4) and **inverse world** (3×4) matrices. It traverses the `TransformNode` tree deterministically, honors per-entity `dirty` flags to skip unnecessary work, and avoids per-frame allocations by reusing a `PropagateWorkspace`.
 
 Use this after:
 - Local transform edits (sets `dirty = 1`)
@@ -62,7 +62,7 @@ Notes:
 
 ### Structural Changes
 - After reparenting (via `TransformTree.setParent`), mark affected nodes dirty and call `propagateTransforms`:
-  - Children world transforms reflect the new hierarchy
+  - Children world transforms reflect the new tree
   - `rowVersion` increments only for nodes whose computed world changed
 - Removing a node (via `TransformTree.remove`) then propagating:
   - Remaining structure is consistent; no dangling references affect traversal

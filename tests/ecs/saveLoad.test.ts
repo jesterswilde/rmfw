@@ -322,7 +322,7 @@ describe("Save/Load JSON", () => {
     expect(nodeFields.parent[grandChildRow]).toBe(firstChild);
 
     const names: string[] = [];
-    world2.forEachHierarchy((name) => names.push(name));
+    world2.forEachTree((name) => names.push(name));
     expect(names).toContain(treeNodeMeta.name);
   });
 

@@ -48,7 +48,7 @@ export type Def<M extends ComponentMeta = ComponentMeta> = Readonly<{
 /** Extract the meta from a Def. */
 export type MetaOf<D extends Def> = D["meta"];
 
-export type HierarchyLike = {
+export type TreeLike = {
   /** Detach subtree root 'entity' (becomes root); no-ops if entity isn't present. */
   remove(entity: number): void;
   /** Name for debugging (e.g., "TransformNode", "RenderNode") */

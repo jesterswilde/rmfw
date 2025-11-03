@@ -129,7 +129,7 @@ Includes:
 
 
 ## - [ ] Phase 6 — Efficient Physical Rebuilds (DFS-aware)
-**Outcome:** Hierarchical components rebuild incrementally; avoid full AoS rewrites.
+**Outcome:** Tree components rebuild incrementally; avoid full AoS rewrites.
 
     - [ ] Add subtree-based range repacking (delete/insert contiguous DFS runs)
     - [ ] Explore:
