@@ -1,4 +1,4 @@
-import type { Tickable } from "./interfaces";
+import type { Tickable } from "./interfaces.js";
 
 export class FrameLoop {
   private subs: Array<[Tickable, priority: number]> = []

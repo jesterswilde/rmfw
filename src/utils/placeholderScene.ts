@@ -1,5 +1,5 @@
 import type { World } from "../ecs/core/index.js";
-import { ShapeMeta, TransformMeta } from "../ecs/registry";
+import { ShapeMeta, TransformMeta } from "../ecs/registry.js";
 import { Shape } from "../interfaces.js";
 
 export const makePlaceholderScene = (world: World)=>{

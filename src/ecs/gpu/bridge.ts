@@ -1,7 +1,7 @@
 // src/ecs/gpu/bridge.ts
 // GPU Bridge registry & sync loop (channels are now in separate files)
 
-import type { World } from "../core/index";
+import type { World } from "../core/index.js";
 import type { BaseChannel, BindLayoutSpec } from "./baseChannel.js";
 
 type Key = string;

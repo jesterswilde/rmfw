@@ -1,5 +1,5 @@
 // src/ecs/core/entityAllocator.ts
-import type { Entity } from "../interfaces";
+import type { Entity } from "../interfaces.js";
 
 const GROW = (n: number) => Math.max(2, n << 1);
 export class EntityAllocator {
